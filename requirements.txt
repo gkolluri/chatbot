@@ -1,0 +1,10 @@
+# Requirements for Streamlit Chatbot App with OpenAI, LangGraph, and MongoDB
+streamlit  # Web frontend
+openai  # OpenAI GPT-3.5/4 API
+langchain  # LangGraph is part of LangChain
+langgraph  # Conversation management (if separate)
+pymongo  # MongoDB Atlas connection
+python-dotenv  # For loading environment variables
+
+# Optional: for local testing/mocking
+mongomock  # Mock MongoDB if no Atlas connection 
