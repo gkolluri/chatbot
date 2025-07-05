@@ -12,8 +12,10 @@ class Chatbot:
         self.client = OpenAI(api_key=self.api_key)
         self.db = db
         self.rejected_questions = set()
+        self.accepted_questions = set()
         if db:
             self.rejected_questions = set(db.get_rejected_questions())
+            self.accepted_questions = set(db.get_accepted_questions())
         self.conversation = []  # List of (role, message)
         self.conversation_turns = 0  # Track number of conversation turns
         self.last_question = None  # Store the last follow-up question
@@ -65,7 +67,10 @@ class Chatbot:
                 self.last_question = None
                 return "Understood. Let me ask something else later."
             else:
-                # User said yes, acknowledge and continue
+                # User said yes, mark as accepted
+                self.accepted_questions.add(self.last_question)
+                if self.db:
+                    self.db.save_accepted_question(self.last_question)
                 self.last_question = None
                 return "Great! Let's continue our conversation."
         
@@ -95,4 +100,23 @@ class Chatbot:
         return self.conversation_turns
 
     def get_last_question(self):
-        return self.last_question 
+        return self.last_question
+
+    def get_accepted_questions(self):
+        """Get list of accepted questions"""
+        return list(self.accepted_questions)
+
+    def get_rejected_questions(self):
+        """Get list of rejected questions"""
+        return list(self.rejected_questions)
+
+    def get_question_stats(self):
+        """Get statistics about questions"""
+        if self.db:
+            return self.db.get_question_stats()
+        else:
+            return {
+                'rejected_count': len(self.rejected_questions),
+                'accepted_count': len(self.accepted_questions),
+                'total_questions': len(self.rejected_questions) + len(self.accepted_questions)
+            } 
