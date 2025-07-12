@@ -7,25 +7,35 @@ from langgraph.graph import StateGraph, END
 # In production, this should be persisted (see db.py)
 
 class Chatbot:
-    def __init__(self, db=None):
+    def __init__(self, db=None, user_id=None, user_name=None):
         self.api_key = os.getenv('OPENAI_API_KEY')
         self.client = OpenAI(api_key=self.api_key)
         self.db = db
+        self.user_id = user_id
+        self.user_name = user_name
         self.rejected_questions = set()
         self.accepted_questions = set()
-        if db:
-            self.rejected_questions = set(db.get_rejected_questions())
-            self.accepted_questions = set(db.get_accepted_questions())
         self.conversation = []  # List of (role, message)
         self.conversation_turns = 0  # Track number of conversation turns
         self.last_question = None  # Store the last follow-up question
+        
+        # Load user-specific data if user_id is provided
+        if self.db and self.user_id:
+            self.rejected_questions = set(self.db.get_rejected_questions(self.user_id))
+            self.accepted_questions = set(self.db.get_accepted_questions(self.user_id))
+            self.conversation = self.db.get_user_conversation(self.user_id)
+            self.conversation_turns = len(self.conversation)
 
     def add_user_message(self, message):
         self.conversation.append(("user", message))
         self.conversation_turns += 1
+        if self.db and self.user_id:
+            self.db.save_conversation_turn(self.user_id, "user", message, self.conversation_turns)
 
     def add_bot_message(self, message):
         self.conversation.append(("bot", message))
+        if self.db and self.user_id:
+            self.db.save_conversation_turn(self.user_id, "bot", message, self.conversation_turns)
 
     def is_rejection(self, message):
         # Simple heuristic for rejection
@@ -63,14 +73,14 @@ class Chatbot:
                 # Mark the question as rejected
                 self.rejected_questions.add(self.last_question)
                 if self.db:
-                    self.db.save_rejected_question(self.last_question)
+                    self.db.save_rejected_question(self.last_question, self.user_id)
                 self.last_question = None
                 return "Understood. Let me ask something else later."
             else:
                 # User said yes, mark as accepted
                 self.accepted_questions.add(self.last_question)
                 if self.db:
-                    self.db.save_accepted_question(self.last_question)
+                    self.db.save_accepted_question(self.last_question, self.user_id)
                 self.last_question = None
                 return "Great! Let's continue our conversation."
         
@@ -113,10 +123,18 @@ class Chatbot:
     def get_question_stats(self):
         """Get statistics about questions"""
         if self.db:
-            return self.db.get_question_stats()
+            return self.db.get_question_stats(self.user_id)
         else:
             return {
                 'rejected_count': len(self.rejected_questions),
                 'accepted_count': len(self.accepted_questions),
                 'total_questions': len(self.rejected_questions) + len(self.accepted_questions)
-            } 
+            }
+
+    def get_user_info(self):
+        """Get user information"""
+        return {
+            'user_id': self.user_id,
+            'user_name': self.user_name,
+            'conversation_turns': self.conversation_turns
+        } 
