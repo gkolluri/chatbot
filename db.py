@@ -213,6 +213,34 @@ class DB:
         ).sort('timestamp', 1)
         return [(doc['role'], doc['message']) for doc in conversations]
 
+    def get_user_conversations(self, user_id, limit=20):
+        """Get recent conversations for a user (alias for get_user_conversation)"""
+        conversations = self.conversations_collection.find(
+            {'user_id': user_id}
+        ).sort('timestamp', -1).limit(limit)
+        return [(doc['role'], doc['message']) for doc in conversations]
+
+    def add_conversation(self, user_id, role, message, conversation_turns):
+        """Add a conversation message (alias for save_conversation_turn)"""
+        return self.save_conversation_turn(user_id, role, message, conversation_turns)
+
+    def create_user(self, user_name, user_id=None):
+        """Create a new user"""
+        if user_id is None:
+            user_id = str(uuid.uuid4())
+        
+        user_doc = {
+            'user_id': user_id,
+            'name': user_name,
+            'created_at': self._get_timestamp(),
+            'profile_updated_at': self._get_timestamp(),
+            'preferred_languages': [],
+            'native_language': None,
+            'language_comfort_level': 'english'
+        }
+        self.users_collection.insert_one(user_doc)
+        return user_id
+
     def get_user_stats(self, user_id):
         """Get conversation statistics for a specific user"""
         total_turns = self.conversations_collection.count_documents({'user_id': user_id})
@@ -266,9 +294,50 @@ class DB:
         }
 
     def _get_timestamp(self):
-        """Get current timestamp for database records"""
+        """Get current timestamp"""
         from datetime import datetime
-        return datetime.utcnow()
+        return datetime.now()
+
+    def check_connection(self):
+        """Check database connection status"""
+        try:
+            # Test connection by performing a simple operation
+            self.users_collection.find_one()
+            return {
+                'success': True,
+                'message': 'Connected successfully',
+                'type': 'MongoDB Atlas' if hasattr(self.client, 'server_info') else 'Mock Database'
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'message': f'Connection failed: {str(e)}',
+                'type': 'Unknown'
+            }
+    
+    def get_tag_type(self, tag):
+        """Get the type of a tag (manual or inferred)"""
+        tag_doc = self.user_tags_collection.find_one({'tag': tag.lower().strip()})
+        return tag_doc.get('tag_type', 'unknown') if tag_doc else None
+    
+    def get_last_question(self, user_id):
+        """Get the last follow-up question for a user"""
+        # This would typically be stored in a separate collection
+        # For now, return None as this is handled by the chatbot
+        return None
+    
+    def get_user_conversation(self, user_id):
+        """Get conversation history for a user"""
+        conversations = self.conversations_collection.find(
+            {'user_id': user_id}
+        ).sort('timestamp', 1)
+        
+        # Convert to (role, message) format
+        conversation = []
+        for conv in conversations:
+            conversation.append((conv['role'], conv['message']))
+        
+        return conversation
 
 def get_db():
     return DB() 

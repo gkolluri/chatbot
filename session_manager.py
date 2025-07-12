@@ -103,6 +103,39 @@ class SessionManager:
                 st.query_params["user_name"] = user_info['user_name']
                 st.query_params["authenticated"] = "true"
                 st.query_params["last_activity"] = datetime.now().isoformat()
+    
+    def check_session(self):
+        """Check session status and health"""
+        try:
+            if self.is_user_authenticated():
+                user_info = self.get_user_info()
+                return {
+                    'success': True,
+                    'message': f'Session active for user: {user_info["user_name"]}',
+                    'user_id': user_info['user_id'],
+                    'user_name': user_info['user_name']
+                }
+            else:
+                return {
+                    'success': False,
+                    'message': 'No active session found'
+                }
+        except Exception as e:
+            return {
+                'success': False,
+                'message': f'Session check failed: {str(e)}'
+            }
+    
+    def get_last_activity(self):
+        """Get the last activity timestamp"""
+        try:
+            params = st.query_params
+            if 'last_activity' in params:
+                return params['last_activity']
+            else:
+                return datetime.now().isoformat()
+        except Exception as e:
+            return f'Error getting last activity: {str(e)}'
 
 # Global session manager instance
 session_manager = SessionManager() 

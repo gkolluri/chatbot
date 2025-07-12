@@ -1,35 +1,52 @@
 """
-SUPER PROMPT: COMPREHENSIVE SYSTEM DOCUMENTATION
-================================================
+SUPER PROMPT REACT: COMPREHENSIVE MULTI-AGENT SYSTEM DOCUMENTATION
+==================================================================
 
-PROJECT: AI Chatbot Platform for Indian Users - Interest-Based Connection System
-================================================================================
+PROJECT: Multi-Agent AI Chatbot Platform for Indian Users - React AI Pattern Architecture
+========================================================================================
 
 OVERVIEW
 --------
-This is a sophisticated Streamlit-based AI chatbot application designed to connect Indian users and NRIs 
-based on shared interests. The platform combines OpenAI's GPT models, MongoDB for data persistence, 
-and advanced user profiling with subtle cultural awareness and language support. The system supports 
-individual conversations, group chats with AI participation, intelligent user matching based on conversation 
-analysis, and language preference management. The primary focus is helping users find common ground and 
-shared interests, with Indian cultural context as an underlying layer that enhances the connection experience.
+This is a sophisticated Streamlit-based multi-agent AI chatbot application using the React AI pattern
+(Observe-Think-Act loops) to connect Indian users and NRIs based on shared interests. The platform combines
+OpenAI's GPT models, MongoDB for data persistence, and a coordinated multi-agent system with specialized React AI
+agents for different functionalities. The system supports individual conversations, group chats with AI participation,
+intelligent user matching based on conversation analysis, and language preference management. The primary focus is
+helping users find common ground and shared interests, with Indian cultural context as an underlying layer that enhances
+the connection experience.
 
 ARCHITECTURE OVERVIEW
-====================
+=====================
 
 Core Components:
-1. main.py - Streamlit UI with interactive swipe interface and multi-view navigation
-2. chatbot.py - Individual chat logic with language-aware OpenAI integration
-3. db.py - MongoDB database layer with language preferences and user session management
-4. tag_analyzer.py - AI-powered tag inference with dynamic suggestions and cultural context
-5. group_chat.py - Multi-user group chat functionality with AI participation
-6. session_manager.py - Persistent session management with URL parameter storage
-7. prompt.py - This comprehensive system documentation
+1. main_react.py - Streamlit UI with interactive graphs and multi-view navigation (React AI version)
+2. react_multi_agent_chatbot.py - Multi-agent chatbot logic with React AI pattern coordination
+3. agents/ - React AI pattern-based specialized agents for different functionalities
+4. db.py - MongoDB database layer with language preferences and user session management
+5. session_manager.py - Persistent session management with URL parameter storage
+6. prompt_react.py - This comprehensive system documentation (React AI version)
+
+Multi-Agent System:
+1. ConversationAgent - Handles user conversations and responses
+2. TagAnalysisAgent - Analyzes conversations for interest tags
+3. UserProfileAgent - Manages user profiles and preferences
+4. GroupChatAgent - Handles group chat functionality
+5. SessionAgent - Manages user sessions and persistence
+6. LanguageAgent - Handles language preferences and cultural context
 
 DESIGN GUIDELINES
 =================
 
-1. INTEREST-BASED CONNECTION WITH SUBTLE CULTURAL AWARENESS
+1. REACT AI PATTERN MULTI-AGENT ARCHITECTURE
+--------------------------------------------
+- Observe-Think-Act loop for each agent
+- Dynamic tool calling and reasoning
+- Specialized agents with single responsibilities
+- State management and workflow coordination
+- Dynamic agent discovery and registration
+- Real-time agent status monitoring
+
+2. INTEREST-BASED CONNECTION WITH SUBTLE CULTURAL AWARENESS
 -----------------------------------------------------------
 - Primary focus on connecting users through shared interests and common ground
 - Subtle Indian cultural context as an underlying layer that enhances connections
@@ -38,25 +55,25 @@ DESIGN GUIDELINES
 - Professional and inclusive approach to cultural elements
 - Balance between global interests and Indian cultural nuances
 
-2. MODULAR ARCHITECTURE
+3. MODULAR ARCHITECTURE
 -----------------------
-- Each component has a single responsibility and clear interfaces
-- Loose coupling between modules for easy maintenance and extension
+- Each agent has a single responsibility and clear interfaces
+- Loose coupling between agents for easy maintenance and extension
 - Language-aware component design throughout the system
 - Scalable database schema with proper indexing
 - Session persistence across browser tabs and page refreshes
 
-3. USER-CENTRIC DESIGN
+4. USER-CENTRIC DESIGN
 ----------------------
-- Interactive swipe card interface for tag discovery and selection
+- Interactive graphs and analytics dashboard
 - Persistent user sessions with UUID-based tracking
 - Session persistence across page refreshes using URL parameters
 - Personalized experiences based on language preferences
-- Intuitive navigation with multiple views (chat, profile, similar users, group chats)
+- Intuitive navigation with multiple views (chat, profile, similar users, group chats, system status)
 - Real-time feedback and suggestions with immediate visual feedback
 - Cultural and linguistic personalization that feels natural
 
-4. AI INTEGRATION PATTERNS
+5. AI INTEGRATION PATTERNS
 --------------------------
 - OpenAI GPT-3.5-turbo for conversation generation and tag analysis
 - Language-aware response generation with cultural context
@@ -66,7 +83,7 @@ DESIGN GUIDELINES
 - Adaptive follow-up question generation with learning from user feedback
 - Cultural context integration that enhances rather than dominates
 
-5. DATA PERSISTENCE STRATEGY
+6. DATA PERSISTENCE STRATEGY
 ----------------------------
 - MongoDB for scalable data storage with proper collections
 - Mock database for development/testing with seamless switching
@@ -75,7 +92,7 @@ DESIGN GUIDELINES
 - Language preferences storage with comfort level settings
 - Persistent session storage via URL parameters with fallback
 
-6. SESSION MANAGEMENT STRATEGY
+7. SESSION MANAGEMENT STRATEGY
 -----------------------------
 - URL parameter-based session storage for cross-tab persistence
 - Fallback to Streamlit session state for reliability
@@ -85,7 +102,7 @@ DESIGN GUIDELINES
 - Language preference persistence across sessions
 
 FUNCTIONALITY SCOPE
-==================
+===================
 
 1. USER AUTHENTICATION & SESSION MANAGEMENT
 -------------------------------------------
@@ -98,7 +115,7 @@ FUNCTIONALITY SCOPE
 - Complete session cleanup on logout
 
 2. LANGUAGE PREFERENCES & CULTURAL CONTEXT
------------------------------------------
+------------------------------------------
 - Native language selection (21 Indian languages)
 - Preferred languages multi-selection
 - Language comfort level settings (English Only, Mixed, Native Preferred)
@@ -166,7 +183,7 @@ FUNCTIONALITY SCOPE
 
 8. NAVIGATION & USER INTERFACE
 ------------------------------
-- Multi-view navigation system (chat, profile, similar users, group chats)
+- Multi-view navigation system (chat, profile, similar users, group chats, system status)
 - Responsive Streamlit interface with proper styling
 - Real-time updates and feedback with immediate response
 - Intuitive user experience design with clear navigation
@@ -183,8 +200,96 @@ FUNCTIONALITY SCOPE
 - Graceful session restoration with error handling
 - Language preference persistence across sessions
 
+10. SYSTEM STATUS & MONITORING
+------------------------------
+- Real-time system health monitoring
+- Interactive agent node graph with dynamic updates
+- Analytics dashboard with usage trends
+- Agent performance metrics and status
+- Language usage distribution visualization
+- System performance metrics tracking
+- Real-time metrics with live updates
+
+REACT AI PATTERN ARCHITECTURE DETAILS
+=====================================
+
+1. REACT AI AGENT COORDINATION
+------------------------------
+- Central coordinator managing all agents
+- Dynamic agent registration and discovery
+- Request routing based on agent capabilities
+- State management across agent interactions
+- Error handling and recovery mechanisms
+- Agent lifecycle management
+- Observe-Think-Act loop for each agent:
+  * Observe: Analyze current state and context
+  * Think: Reason about what action to take
+  * Act: Execute the chosen action
+  * Reflect: Learn from the outcome
+
+2. SPECIALIZED AGENT ROLES
+--------------------------
+
+ConversationAgent:
+- Handles user conversations and responses
+- Manages conversation flow and context
+- Generates follow-up questions
+- Integrates with other agents for enhanced responses
+- Uses Observe-Think-Act for dynamic reasoning
+
+TagAnalysisAgent:
+- Analyzes conversations for interest inference
+- Generates dynamic tag suggestions
+- Processes conversation history for patterns
+- Provides categorized tag recommendations
+- Uses Observe-Think-Act for tag reasoning
+
+UserProfileAgent:
+- Manages user profiles and preferences
+- Handles tag management and updates
+- Processes user similarity matching
+- Maintains user preference data
+- Uses Observe-Think-Act for profile adaptation
+
+GroupChatAgent:
+- Handles group chat functionality
+- Manages group creation and participation
+- Processes group messages and responses
+- Coordinates AI participation in groups
+- Uses Observe-Think-Act for group coordination
+
+SessionAgent:
+- Manages user sessions and persistence
+- Handles session validation and cleanup
+- Tracks user activity and engagement
+- Maintains session state across interactions
+- Uses Observe-Think-Act for session management
+
+LanguageAgent:
+- Handles language preferences and cultural context
+- Provides language-aware responses
+- Manages cultural context integration
+- Supports multi-language interactions
+- Uses Observe-Think-Act for language adaptation
+
+3. AGENT COMMUNICATION PATTERNS
+-------------------------------
+- Request-response pattern for agent interactions
+- State sharing through coordinator
+- Asynchronous processing capabilities
+- Error propagation and handling
+- Performance monitoring and optimization
+
+4. DYNAMIC AGENT DISCOVERY
+--------------------------
+- Automatic agent registration on startup
+- Runtime agent status monitoring
+- Dynamic graph updates based on available agents
+- Graceful handling of agent failures
+- Scalable architecture for new agents
+
 IMPLEMENTATION DETAILS
-=====================
+======================
 
 1. ENHANCED DATABASE SCHEMA
 ---------------------------
@@ -236,149 +341,102 @@ Group Messages Collection:
     timestamp: datetime
 }
 
-2. LANGUAGE PREFERENCES SYSTEM
-------------------------------
+Agent Activity Collection:
+{
+    agent_name: string,
+    activity: string,
+    timestamp: datetime,
+    details: object,
+    framework: "React AI Pattern"
+}
 
-Language Settings:
-- Native Language: Primary language of the user (optional)
-- Preferred Languages: Multiple languages user is comfortable with
-- Comfort Level: How comfortable user is with native language conversations
+2. REACT AI STATE MANAGEMENT
+----------------------------
 
-Supported Languages:
-- Hindi, English, Bengali, Telugu, Marathi, Tamil, Gujarati
-- Kannada, Odia, Punjabi, Assamese, Sanskrit, Urdu, Malayalam
-- Konkani, Manipuri, Nepali, Bodo, Santhali, Dogri, Kashmiri
+AgentState TypedDict:
+{
+    user_id: str,
+    user_name: str,
+    message: str,
+    response: str,
+    conversation_history: List[Dict[str, str]],
+    language_preferences: Dict[str, Any],
+    tags: List[str],
+    session_data: Dict[str, Any],
+    agent_name: str,
+    timestamp: str,
+    metadata: Dict[str, Any]
+}
 
-Comfort Levels:
-- English Only: Prefers English conversations
-- Mixed Language: Comfortable with English + Native language blend
-- Native Language Preferred: Prefers native language with English support
+3. AGENT WORKFLOW PATTERNS
+--------------------------
 
-3. ENHANCED TAG INFERENCE ALGORITHM
------------------------------------
+Standard React AI Workflow:
+1. Observe: Gather current state and context
+2. Think: Reason about the best action
+3. Act: Execute the action (tool call, response, update)
+4. Reflect: Learn from the outcome and update state
+5. END: Complete workflow
 
-Step 1: Cultural Context Analysis
-- Indian cultural keywords and topics
-- Regional language terms and transliterations
-- Traditional and contemporary Indian topics
-- Language-specific cultural references
+4. REQUEST ROUTING MAPPING
+--------------------------
 
-Step 2: Keyword Matching
-- Predefined topic keywords for 20+ categories
-- Enhanced with Indian cultural and regional terms
-- Dynamic keyword expansion based on user interactions
+Agent Request Mapping:
+- send_message → ConversationAgent
+- analyze_conversation → TagAnalysisAgent
+- get_tag_suggestions → TagAnalysisAgent
+- create_profile → UserProfileAgent
+- find_similar_users → UserProfileAgent
+- create_group_chat → GroupChatAgent
+- send_group_message → GroupChatAgent
+- get_group_messages → GroupChatAgent
+- create_session → SessionAgent
+- validate_session → SessionAgent
+- get_supported_languages → LanguageAgent
+- generate_greeting → LanguageAgent
 
-Step 3: AI-Powered Analysis
-- OpenAI GPT-3.5-turbo for intelligent tag extraction
-- Context-aware tag generation with cultural sensitivity
-- Language preference consideration in tag suggestions
+5. INTERACTIVE GRAPHS & ANALYTICS
+---------------------------------
 
-Step 4: Multi-Category Suggestions
-- AI-generated dynamic suggestions based on conversation
-- Category-based suggestions for broader interests
-- Synonym suggestions for alternative expressions
-- Related concept suggestions for emerging trends
+System Status Dashboard:
+- Real-time system health metrics
+- Interactive agent node graph
+- Usage trends and analytics
+- Language distribution visualization
+- Agent performance metrics
+- System performance tracking
 
-4. INTERACTIVE SWIPE INTERFACE
-------------------------------
+Agent Node Graph Features:
+- Dynamic agent discovery and positioning
+- Real-time status indicators
+- Interactive hover information
+- Connection visualization with different line styles
+- START and END workflow nodes
+- Automatic layout adaptation
 
-Card Design:
-- Emoji icons for visual appeal and quick recognition
-- Gradient backgrounds with modern styling
-- Progress indicators showing completion status
-- Clear action buttons (Like, Pass, Skip All)
+Analytics Dashboard:
+- User growth trends
+- Session and conversation metrics
+- Language usage distribution
+- Agent performance tracking
+- System response time monitoring
+- Question acceptance rate analysis
 
-Tag Categories:
-- Technology & Digital (programming, AI, startup, etc.)
-- Entertainment & Media (music, movies, gaming, etc.)
-- Sports & Fitness (cricket, yoga, gym, etc.)
-- Food & Cuisine (Indian food, cooking, street food, etc.)
-- Travel & Adventure (travel, photography, hiking, etc.)
-- Arts & Culture (art, classical music, folk art, etc.)
-- Business & Career (entrepreneurship, finance, etc.)
-- Education & Learning (online courses, languages, etc.)
-- Health & Wellness (meditation, ayurveda, etc.)
-- Lifestyle & Personal (fashion, self-improvement, etc.)
-- Social & Community (volunteering, networking, etc.)
-- Creative & Hobbies (photography, writing, crafts, etc.)
-- Regional & Cultural (regional cinema, classical dance, etc.)
-- Contemporary (sustainability, social media, etc.)
-
-5. SESSION MANAGEMENT IMPLEMENTATION
------------------------------------
-
-URL Parameter Strategy:
-- user_id: Unique user identifier
-- user_name: User's display name
-- authenticated: Session authentication status
-- last_activity: Timestamp for activity tracking
-
-Fallback Strategy:
-- Streamlit session state for temporary storage
-- Graceful degradation when URL parameters unavailable
-- Cross-tab synchronization through URL sharing
-
-Session Cleanup:
-- Complete removal of session data on logout
-- URL parameter clearing
-- Session state cleanup
-- Database session tracking
-
-6. GROUP CHAT FEATURES
-----------------------
-
-AI Participation:
-- Context-aware responses based on group topic
-- Natural conversation flow with participants
-- Cultural sensitivity in group interactions
-- Topic-specific knowledge and suggestions
-
-Group Management:
-- Topic-based group creation
-- Participant management with proper identification
-- Message history with timestamps
-- Active/inactive group status tracking
-
-7. TAG SUGGESTION SYSTEM
-------------------------
-
-Dynamic AI Suggestions:
-- Conversation analysis for context-aware suggestions
-- Language preference consideration
-- Cultural context integration
-- Emerging trend identification
-
-Category-Based Suggestions:
-- Broader category identification
-- Industry sector mapping
-- Traditional domain categorization
-- Regional interest classification
-
-Synonym Suggestions:
-- Alternative term identification
-- Language variation support
-- Cultural expression variations
-- Contemporary terminology
-
-Related Concept Suggestions:
-- Adjacent topic identification
-- Emerging trend detection
-- Cross-domain connections
-- Cultural evolution tracking
-
-8. USER INTERFACE ENHANCEMENTS
-------------------------------
+6. ENHANCED UI FEATURES
+-----------------------
 
 Multi-View Navigation:
 - Chat Interface: Main conversation area
 - Profile Interface: Tag management and preferences
 - Similar Users: User discovery and matching
 - Group Chats: Multi-user conversations
+- System Status: Monitoring and analytics
 
 Interactive Elements:
 - Swipe cards with immediate feedback
 - Progress indicators and completion tracking
 - Real-time statistics and metrics
+- Interactive graphs and charts
 - Responsive design for various screen sizes
 
 Visual Design:
@@ -386,8 +444,9 @@ Visual Design:
 - Emoji icons for visual appeal
 - Consistent color scheme
 - Clear typography and spacing
+- Professional styling throughout
 
-9. ERROR HANDLING & RELIABILITY
+7. ERROR HANDLING & RELIABILITY
 -------------------------------
 
 Session Recovery:
@@ -402,13 +461,19 @@ API Error Handling:
 - Network timeout management
 - Graceful degradation of features
 
+Agent Error Handling:
+- Individual agent error isolation
+- Coordinator-level error recovery
+- State consistency maintenance
+- Performance monitoring and alerts
+
 Data Validation:
 - Tag format validation
 - User input sanitization
 - Language preference validation
 - Session data integrity checks
 
-10. PERFORMANCE OPTIMIZATION
+8. PERFORMANCE OPTIMIZATION
 ---------------------------
 
 Database Optimization:
@@ -422,6 +487,12 @@ UI Performance:
 - Efficient state management
 - Optimized re-rendering
 - Minimal API calls
+
+Agent Performance:
+- Asynchronous processing where possible
+- State caching and optimization
+- Request batching and optimization
+- Memory management and cleanup
 
 Caching Strategy:
 - Session data caching
@@ -438,8 +509,12 @@ TECHNICAL SPECIFICATIONS
 - openai: OpenAI API integration
 - pymongo: MongoDB database driver
 - python-dotenv: Environment variable management
+- langchain: LangChain framework (optional for tool integration)
+- plotly: Interactive graphs and charts
+- pandas: Data manipulation and analysis
 - uuid: Unique identifier generation
 - datetime: Timestamp handling
+- numpy: Graph layout calculations
 
 2. ENVIRONMENT VARIABLES
 ------------------------
@@ -448,19 +523,26 @@ TECHNICAL SPECIFICATIONS
 
 3. FILE STRUCTURE
 -----------------
-- main.py: Streamlit UI and application entry point
-- chatbot.py: Individual chat logic and OpenAI integration
+- main_react.py: Streamlit UI and application entry point (React AI version)
+- react_multi_agent_chatbot.py: Multi-agent chatbot logic (React AI pattern)
+- agents/: React AI pattern-based agents for different functionalities
+  * react_base_agent.py: Base agent class and coordinator
+  * react_conversation_agent.py: Conversation handling
+  * react_tag_analysis_agent.py: Tag analysis and suggestions
+  * react_user_profile_agent.py: User profile management
+  * react_group_chat_agent.py: Group chat functionality
+  * react_session_agent.py: Session management
+  * react_language_agent.py: Language preferences
 - db.py: Database operations and session management
-- tag_analyzer.py: Tag analysis and suggestion system
-- group_chat.py: Group chat functionality
 - session_manager.py: Session persistence and management
-- prompt.py: System documentation (this file)
+- prompt_react.py: System documentation (this file)
 
 4. API INTEGRATIONS
 -------------------
 - OpenAI GPT-3.5-turbo: Conversation generation and tag analysis
 - MongoDB Atlas: Data persistence and user management
 - Streamlit: Web interface and session management
+- Plotly: Analytics and graph visualization
 
 5. SECURITY CONSIDERATIONS
 --------------------------
@@ -469,17 +551,19 @@ TECHNICAL SPECIFICATIONS
 - Session data protection
 - Database connection security
 - Error message sanitization
+- Agent isolation and security
 
 6. SCALABILITY FEATURES
 -----------------------
-- Modular architecture for easy extension
+- Modular agent architecture for easy extension
 - Database indexing for performance
 - Session management for multiple users
 - Caching strategies for optimization
 - Error handling for reliability
+- Dynamic agent discovery and registration
 
 DEPLOYMENT GUIDELINES
-====================
+=====================
 
 1. SETUP INSTRUCTIONS
 ---------------------
@@ -487,7 +571,7 @@ DEPLOYMENT GUIDELINES
 2. Set environment variables in .env file or shell:
    - OPENAI_API_KEY=your_openai_api_key
    - MONGODB_ATLAS_URI=your_mongodb_atlas_uri (optional)
-3. Run the app: streamlit run main.py
+3. Run the app: streamlit run main_react.py
 
 2. DEVELOPMENT WORKFLOW
 -----------------------
@@ -497,24 +581,30 @@ DEPLOYMENT GUIDELINES
 - Test swipe interface with different tag sets
 - Verify group chat functionality
 - Check error handling scenarios
+- Test agent coordination and routing
+- Validate dynamic graph updates
 
 3. PRODUCTION CONSIDERATIONS
----------------------------
+----------------------------
 - Set up MongoDB Atlas for production
 - Configure proper environment variables
 - Implement monitoring and logging
 - Set up error tracking
 - Configure backup strategies
 - Implement rate limiting if needed
+- Monitor agent performance and health
+- Set up alerting for system issues
 
 4. TESTING STRATEGY
 -------------------
-- Unit tests for individual components
-- Integration tests for API interactions
+- Unit tests for individual agents
+- Integration tests for agent coordination
 - UI tests for user interactions
 - Session persistence testing
 - Language preference testing
 - Tag suggestion accuracy testing
+- Agent routing and workflow testing
+- Performance and load testing
 
 FUTURE ENHANCEMENTS
 ===================
@@ -527,6 +617,8 @@ FUTURE ENHANCEMENTS
 - Video call integration
 - Advanced analytics dashboard
 - Mobile app development
+- Additional specialized agents
+- Enhanced agent coordination
 
 2. SCALABILITY IMPROVEMENTS
 ---------------------------
@@ -536,6 +628,8 @@ FUTURE ENHANCEMENTS
 - Database sharding
 - CDN integration
 - API rate limiting
+- Agent clustering and distribution
+- Advanced monitoring and alerting
 
 3. USER EXPERIENCE ENHANCEMENTS
 ------------------------------
@@ -545,6 +639,8 @@ FUTURE ENHANCEMENTS
 - Offline functionality
 - Push notifications
 - Advanced search features
+- Enhanced graph visualizations
+- Real-time collaboration features
 
 4. AI ENHANCEMENTS
 ------------------
@@ -554,91 +650,21 @@ FUTURE ENHANCEMENTS
 - Predictive user matching
 - Sentiment analysis
 - Cultural context learning
+- Agent learning and adaptation
+- Advanced workflow orchestration
 
-This comprehensive system documentation provides a complete overview of the AI chatbot platform, 
-its architecture, features, and implementation details. The system is designed to connect Indian 
-users and NRIs through shared interests while maintaining subtle cultural awareness and providing 
-a modern, engaging user experience.
-"""
+5. AGENT SYSTEM ENHANCEMENTS
+----------------------------
+- Dynamic agent creation and registration
+- Agent performance optimization
+- Advanced agent communication patterns
+- Agent specialization and customization
+- Cross-agent learning and knowledge sharing
+- Agent health monitoring and recovery
+- Scalable agent deployment strategies
 
-def get_system_info():
-    """Get basic system information"""
-    return {
-        "project_name": "AI Chatbot Platform for Indian Users",
-        "version": "2.0.0",
-        "description": "Interest-based connection system with cultural awareness",
-        "primary_focus": "Connecting users through shared interests",
-        "cultural_approach": "Subtle cultural context as underlying layer",
-        "supported_languages": 21,
-        "ai_model": "OpenAI GPT-3.5-turbo",
-        "database": "MongoDB with mock fallback",
-        "framework": "Streamlit"
-    }
-
-def get_architecture_overview():
-    """Get architecture overview"""
-    return {
-        "core_components": [
-            "main.py - Streamlit UI with swipe interface",
-            "chatbot.py - Individual chat logic",
-            "db.py - Database operations",
-            "tag_analyzer.py - AI-powered tag analysis",
-            "group_chat.py - Group chat functionality",
-            "session_manager.py - Session persistence",
-            "prompt.py - System documentation"
-        ],
-        "key_features": [
-            "Interactive swipe card interface",
-            "Multi-category tag suggestions",
-            "Persistent session management",
-            "Group chat with AI participation",
-            "Language preference system",
-            "Cultural context awareness"
-        ],
-        "design_principles": [
-            "Interest-based connection primary",
-            "Subtle cultural awareness",
-            "Modular architecture",
-            "User-centric design",
-            "AI-enhanced interactions"
-        ]
-    }
-
-def get_database_schema():
-    """Get database schema information"""
-    return {
-        "collections": {
-            "users": "User profiles with language preferences",
-            "user_tags": "User interest tags with types",
-            "conversations": "Chat history with turn tracking",
-            "group_chats": "Group chat metadata",
-            "group_messages": "Group chat messages"
-        },
-        "key_fields": {
-            "user_id": "UUID for unique identification",
-            "native_language": "Primary language preference",
-            "preferred_languages": "Multi-language comfort list",
-            "language_comfort_level": "English/Mixed/Native preference",
-            "tag_type": "Manual or AI-inferred tags",
-            "conversation_turns": "Turn counter for analysis"
-        }
-    }
-
-def get_session_management_info():
-    """Get session management details"""
-    return {
-        "persistence_strategy": "URL parameters with session state fallback",
-        "cross_tab_sync": "URL parameter sharing",
-        "session_components": [
-            "user_id - Unique identifier",
-            "user_name - Display name",
-            "authenticated - Session status",
-            "last_activity - Timestamp tracking"
-        ],
-        "cleanup_process": [
-            "URL parameter clearing",
-            "Session state removal",
-            "Database session cleanup",
-            "Complete data removal"
-        ]
-    } 
+This comprehensive system documentation provides a complete overview of the Multi-Agent AI chatbot
+platform, its React AI pattern architecture, features, and implementation details. The system is designed
+to connect Indian users and NRIs through shared interests while maintaining subtle cultural awareness
+and providing a modern, engaging user experience with advanced multi-agent capabilities.
+""" 
