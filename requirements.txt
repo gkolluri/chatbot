@@ -1,13 +1,32 @@
+# Core web framework
 streamlit>=1.28.0
-openai>=1.0.0
-python-dotenv>=1.0.0
+
+# AI and ML
+openai>=1.54.0
+langchain>=0.3.0
+langchain-core>=0.3.0
+langgraph>=0.2.0
+langchain-openai>=0.3.0
+langchain-community>=0.3.0
+
+# Database
 pymongo>=4.5.0
 mongomock>=4.1.0
-langchain>=0.1.0
-langgraph>=0.0.20
-langchain-openai>=0.1.0
+
+# Data processing and visualization
 plotly>=5.15.0
 pandas>=2.0.0
-uuid
-datetime
-typing 
+numpy>=1.24.0
+
+# Location and mapping
+folium>=0.20.0
+streamlit-folium>=0.25.0
+geopy>=2.4.0
+pytz>=2023.3
+
+# Utilities
+python-dotenv>=1.0.0
+requests>=2.31.0
+
+# Note: uuid, datetime, typing, json, math, re, os, sys, random are built-in Python modules
+# Note: faiss-cpu removed as we're using MongoDB vector storage instead of FAISS 

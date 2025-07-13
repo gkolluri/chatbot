@@ -187,6 +187,14 @@ REACT AI PATTERN:
             return self._create_profile(request)
         elif request_type == 'find_similar_users':
             return self._find_similar_users(request)
+        elif request_type == 'find_similar_users_with_location':
+            return self._find_similar_users_with_location(request)
+        elif request_type == 'update_location':
+            return self._update_location(request)
+        elif request_type == 'find_nearby_users':
+            return self._find_nearby_users(request)
+        elif request_type == 'find_users_in_city':
+            return self._find_users_in_city(request)
         elif request_type == 'manage_tags':
             return self._manage_tags(request)
         elif request_type == 'get_profile':
@@ -195,7 +203,8 @@ REACT AI PATTERN:
             return {
                 'success': False,
                 'error': f'Unknown request type: {request_type}',
-                'available_types': ['create_profile', 'find_similar_users', 'manage_tags', 'get_profile']
+                'available_types': ['create_profile', 'find_similar_users', 'find_similar_users_with_location', 
+                                  'update_location', 'find_nearby_users', 'find_users_in_city', 'manage_tags', 'get_profile']
             }
     
     def _create_profile(self, request: Dict[str, Any]) -> Dict[str, Any]:
@@ -246,6 +255,7 @@ REACT AI PATTERN:
         """
         user_id = request.get('user_id')
         min_common_tags = request.get('min_common_tags', 2)
+        limit = request.get('limit', 5)
         
         if not user_id:
             return {
@@ -253,21 +263,47 @@ REACT AI PATTERN:
                 'error': 'Missing user_id'
             }
         
-        # Use React AI pattern for similarity search
-        react_request = {
-            'user_id': user_id,
-            'message': f'Find similar users for {user_id}',
-            'min_common_tags': min_common_tags,
-            'type': 'find_similar_users'
-        }
-        
-        result = self.react_loop(react_request)
-        
-        if result.get('success'):
-            result['similarity_search_completed'] = True
-            result['framework'] = 'React AI Pattern'
-        
-        return result
+        try:
+            # Use React AI pattern for similarity search
+            react_request = {
+                'user_id': user_id,
+                'message': f'Find similar users for {user_id}',
+                'min_common_tags': min_common_tags,
+                'type': 'find_similar_users'
+            }
+            
+            result = self.react_loop(react_request)
+            
+            if result.get('success'):
+                # Get actual similar users from database
+                similar_users = []
+                if self.db:
+                    db_similar_users = self.db.find_similar_users(user_id, min_common_tags, include_location=True)
+                    
+                    # Convert to expected format
+                    for user in db_similar_users[:limit]:
+                        similar_users.append({
+                            'user_id': user['user_id'],
+                            'name': user['name'],
+                            'similarity_score': user['total_score'],
+                            'common_tags': user['common_tags'],
+                            'location_info': user.get('location_info', {}),
+                            'matching_method': 'tag_based_similarity'
+                        })
+                
+                result['similar_users'] = similar_users
+                result['total_found'] = len(similar_users)
+                result['similarity_search_completed'] = True
+                result['framework'] = 'React AI Pattern'
+            
+            return result
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Error finding similar users: {str(e)}',
+                'similar_users': []
+            }
     
     def _manage_tags(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -339,3 +375,231 @@ REACT AI PATTERN:
             result['framework'] = 'React AI Pattern'
         
         return result 
+
+    def _find_similar_users_with_location(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Find similar users with location filtering using React AI pattern.
+        
+        Args:
+            request: Request with search parameters and location filter
+            
+        Returns:
+            Response with similar users considering location
+        """
+        user_id = request.get('user_id')
+        search_type = request.get('search_type', 'interests')
+        location_filter = request.get('location_filter', {})
+        limit = request.get('limit', 5)
+        
+        if not user_id:
+            return {
+                'success': False,
+                'error': 'Missing user_id'
+            }
+        
+        try:
+            # Use React AI pattern for location-aware similarity search
+            react_request = {
+                'user_id': user_id,
+                'message': f'Find similar users with location for {user_id}',
+                'search_type': search_type,
+                'location_filter': location_filter,
+                'limit': limit,
+                'type': 'find_similar_users_with_location'
+            }
+            
+            result = self.react_loop(react_request)
+            
+            if result.get('success'):
+                # Get actual similar users from database
+                if search_type == 'location':
+                    if location_filter.get('type') == 'nearby':
+                        similar_users = self.db.find_nearby_users(
+                            user_id, location_filter.get('radius_km', 50), limit
+                        ) if self.db else []
+                    elif location_filter.get('type') == 'city':
+                        similar_users = self.db.find_users_in_city(
+                            user_id, location_filter.get('city', ''),
+                            location_filter.get('state'), limit
+                        ) if self.db else []
+                    else:
+                        similar_users = []
+                else:
+                    # For interests or both, use enhanced similarity matching
+                    similar_users = self.db.find_similar_users(user_id, limit) if self.db else []
+                
+                result['similar_users'] = similar_users
+                result['search_type'] = search_type
+                result['location_filter_applied'] = bool(location_filter)
+                result['framework'] = 'React AI Pattern'
+            
+            return result
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Error finding similar users with location: {str(e)}',
+                'similar_users': []
+            }
+
+    def _update_location(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Update user location using React AI pattern.
+        
+        Args:
+            request: Request with location data
+            
+        Returns:
+            Response with location update result
+        """
+        user_id = request.get('user_id')
+        city = request.get('city')
+        state = request.get('state')
+        country = request.get('country')
+        timezone = request.get('timezone')
+        coordinates = request.get('coordinates')
+        privacy_level = request.get('privacy_level', 'city_only')
+        
+        if not user_id:
+            return {
+                'success': False,
+                'error': 'Missing user_id'
+            }
+        
+        try:
+            # Use React AI pattern for location update
+            react_request = {
+                'user_id': user_id,
+                'message': f'Update location for user {user_id}',
+                'city': city,
+                'state': state,
+                'country': country,
+                'timezone': timezone,
+                'coordinates': coordinates,
+                'privacy_level': privacy_level,
+                'type': 'update_location'
+            }
+            
+            result = self.react_loop(react_request)
+            
+            if result.get('success'):
+                # Update location in database
+                if self.db:
+                    self.db.update_location_preferences(
+                        user_id, city, state, country, timezone, coordinates, privacy_level
+                    )
+                
+                result['location_updated'] = True
+                result['privacy_level'] = privacy_level
+                result['framework'] = 'React AI Pattern'
+            
+            return result
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Error updating location: {str(e)}'
+            }
+
+    def _find_nearby_users(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Find nearby users using React AI pattern.
+        
+        Args:
+            request: Request with search parameters
+            
+        Returns:
+            Response with nearby users
+        """
+        user_id = request.get('user_id')
+        radius_km = request.get('radius_km', 50)
+        limit = request.get('limit', 10)
+        
+        if not user_id:
+            return {
+                'success': False,
+                'error': 'Missing user_id'
+            }
+        
+        try:
+            # Use React AI pattern for nearby user search
+            react_request = {
+                'user_id': user_id,
+                'message': f'Find nearby users for {user_id}',
+                'radius_km': radius_km,
+                'limit': limit,
+                'type': 'find_nearby_users'
+            }
+            
+            result = self.react_loop(react_request)
+            
+            if result.get('success'):
+                # Get nearby users from database
+                nearby_users = self.db.find_nearby_users(user_id, radius_km, limit) if self.db else []
+                
+                result['nearby_users'] = nearby_users
+                result['search_radius_km'] = radius_km
+                result['search_method'] = 'GPS-based proximity'
+                result['framework'] = 'React AI Pattern'
+            
+            return result
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Error finding nearby users: {str(e)}',
+                'nearby_users': []
+            }
+
+    def _find_users_in_city(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Find users in a specific city using React AI pattern.
+        
+        Args:
+            request: Request with city search parameters
+            
+        Returns:
+            Response with users in the city
+        """
+        user_id = request.get('user_id')
+        city = request.get('city')
+        state = request.get('state')
+        limit = request.get('limit', 10)
+        
+        if not user_id or not city:
+            return {
+                'success': False,
+                'error': 'Missing user_id or city'
+            }
+        
+        try:
+            # Use React AI pattern for city-based user search
+            react_request = {
+                'user_id': user_id,
+                'message': f'Find users in {city} for {user_id}',
+                'city': city,
+                'state': state,
+                'limit': limit,
+                'type': 'find_users_in_city'
+            }
+            
+            result = self.react_loop(react_request)
+            
+            if result.get('success'):
+                # Get users in city from database
+                city_users = self.db.find_users_in_city(user_id, city, state, limit) if self.db else []
+                
+                result['city_users'] = city_users
+                result['search_city'] = city
+                result['search_state'] = state
+                result['search_method'] = 'City-based search'
+                result['framework'] = 'React AI Pattern'
+            
+            return result
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Error finding users in city: {str(e)}',
+                'city_users': []
+            } 

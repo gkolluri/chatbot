@@ -53,7 +53,19 @@ class LangGraphBaseAgent:
         self.agent_name = agent_name
         self.db = db_interface
         self.api_key = os.getenv('OPENAI_API_KEY')
-        self.llm = ChatOpenAI(api_key=self.api_key, model="gpt-3.5-turbo") if self.api_key else None
+        # Use latest GPT-4o model with web search capabilities
+        self.llm = ChatOpenAI(
+            api_key=self.api_key, 
+            model="gpt-4o-mini",
+            temperature=0.7
+        ) if self.api_key else None
+        
+        # Web search enabled LLM for current information
+        self.web_search_llm = ChatOpenAI(
+            api_key=self.api_key,
+            model="gpt-4o-mini",
+            temperature=0.7
+        ) if self.api_key else None
         
         # Agent state
         self.is_active = True
@@ -86,6 +98,245 @@ class LangGraphBaseAgent:
         
         # Compile the workflow
         return workflow.compile()
+    
+    def _search_web(self, query: str, context: str = None) -> str:
+        """
+        Search the web for current information using OpenAI's built-in web search.
+        
+        Args:
+            query: Search query
+            context: Additional context for the search
+            
+        Returns:
+            Search results and analysis
+        """
+        if not self.web_search_llm:
+            return "Web search not available - OpenAI API key required"
+        
+        try:
+            # Use web search tool with the latest model
+            web_search_tool = {"type": "web_search_preview"}
+            llm_with_search = self.web_search_llm.bind_tools([web_search_tool])
+            
+            search_prompt = f"""
+            Search the web for current information about: {query}
+            
+            {f"Context: {context}" if context else ""}
+            
+            Please provide:
+            1. Current, up-to-date information
+            2. Recent trends and developments
+            3. Relevant facts and statistics
+            4. Cultural context if applicable
+            
+            Focus on reliable, recent sources and provide accurate information.
+            """
+            
+            response = llm_with_search.invoke(search_prompt)
+            return response.content
+            
+        except Exception as e:
+            return f"Web search error: {str(e)}"
+    
+    def _get_current_trends(self, topic: str) -> str:
+        """
+        Get current trends and latest information about a topic.
+        
+        Args:
+            topic: Topic to search for trends
+            
+        Returns:
+            Current trends and information
+        """
+        query = f"latest trends {topic} 2024 2025 current news"
+        return self._search_web(query, f"Focus on recent trends and developments in {topic}")
+    
+    def _get_cultural_context(self, user_id=None, language_preferences=None):
+        """Get cultural context for responses with location awareness"""
+        context = {
+            'cultural_elements': [],
+            'language_context': {},
+            'location_context': {},
+            'regional_interests': []
+        }
+        
+        if user_id and self.db:
+            # Get language preferences
+            if not language_preferences:
+                language_preferences = self.db.get_language_preferences(user_id)
+            
+            # Get location preferences
+            location_preferences = self.db.get_location_preferences(user_id)
+            
+            # Add language context
+            if language_preferences:
+                context['language_context'] = {
+                    'native_language': language_preferences.get('native_language'),
+                    'preferred_languages': language_preferences.get('preferred_languages', []),
+                    'comfort_level': language_preferences.get('language_comfort_level', 'english')
+                }
+            
+            # Add location context
+            if location_preferences:
+                context['location_context'] = {
+                    'city': location_preferences.get('city'),
+                    'state': location_preferences.get('state'),
+                    'country': location_preferences.get('country'),
+                    'timezone': location_preferences.get('timezone'),
+                    'privacy_level': location_preferences.get('privacy_level', 'city_only')
+                }
+                
+                # Add regional interests based on location
+                context['regional_interests'] = self._get_regional_interests(location_preferences)
+        
+        return context
+
+    def _get_regional_interests(self, location_preferences):
+        """Get regional interests based on user's location"""
+        regional_interests = []
+        
+        city = location_preferences.get('city', '').lower()
+        state = location_preferences.get('state', '').lower()
+        country = location_preferences.get('country', '').lower()
+        
+        # India-specific regional interests
+        if country == 'india':
+            # State-specific interests
+            state_interests = {
+                'maharashtra': ['bollywood', 'marathi cinema', 'ganesh chaturthi', 'vada pav', 'mumbai street food'],
+                'kerala': ['kathakali', 'ayurveda', 'backwaters', 'coconut cuisine', 'boat races'],
+                'tamil nadu': ['bharatanatyam', 'carnatic music', 'temple architecture', 'tamil literature', 'filter coffee'],
+                'karnataka': ['yakshagana', 'mysore silk', 'karnataka cuisine', 'classical music', 'it culture'],
+                'west bengal': ['durga puja', 'bengali literature', 'fish curry', 'rabindra sangeet', 'adda culture'],
+                'rajasthan': ['folk dance', 'desert culture', 'rajasthani cuisine', 'handicrafts', 'royal heritage'],
+                'punjab': ['bhangra', 'punjabi music', 'sikh culture', 'butter chicken', 'wheat farming'],
+                'gujarat': ['garba', 'dandiya', 'gujarati thali', 'business culture', 'textile industry'],
+                'goa': ['konkani culture', 'beach life', 'seafood', 'portuguese heritage', 'carnival'],
+                'andhra pradesh': ['kuchipudi', 'telugu cinema', 'spicy food', 'biryani', 'pearls'],
+                'telangana': ['hyderabadi cuisine', 'nizami culture', 'biryani', 'qawwali', 'tech industry'],
+                'odisha': ['odissi dance', 'jagannath culture', 'puri temple', 'silver filigree', 'classical arts'],
+                'assam': ['bihu dance', 'tea culture', 'silk weaving', 'tribal arts', 'river culture'],
+                'bihar': ['madhubani art', 'chhath puja', 'litti chokha', 'buddhist heritage', 'folk music'],
+                'jharkhand': ['tribal culture', 'folk dance', 'handicrafts', 'mineral resources', 'forest culture'],
+                'uttarakhand': ['pahadi culture', 'yoga', 'spiritual tourism', 'hill stations', 'adventure sports'],
+                'himachal pradesh': ['hill culture', 'apple orchards', 'buddhist monasteries', 'adventure tourism', 'handicrafts'],
+                'jammu and kashmir': ['kashmiri culture', 'handicrafts', 'saffron', 'shikaras', 'mountain culture'],
+                'delhi': ['street food', 'historical monuments', 'political culture', 'diverse cuisine', 'metro culture'],
+                'uttar pradesh': ['classical music', 'mughal heritage', 'spiritual tourism', 'handicrafts', 'diverse culture'],
+                'madhya pradesh': ['tribal arts', 'khajuraho', 'wildlife', 'handicrafts', 'central indian culture'],
+                'chhattisgarh': ['tribal culture', 'folk arts', 'rice culture', 'forest produce', 'handicrafts'],
+                'haryana': ['folk music', 'agricultural culture', 'sports culture', 'traditional arts', 'rural lifestyle'],
+                'manipur': ['manipuri dance', 'martial arts', 'handloom', 'polo', 'valley culture'],
+                'meghalaya': ['khasi culture', 'living root bridges', 'matrilineal society', 'hill stations', 'music culture'],
+                'mizoram': ['mizo culture', 'bamboo dance', 'handloom', 'hill culture', 'christian heritage'],
+                'nagaland': ['naga culture', 'hornbill festival', 'tribal arts', 'handloom', 'hill culture'],
+                'tripura': ['tripuri culture', 'handloom', 'bamboo crafts', 'tribal arts', 'hill culture'],
+                'sikkim': ['buddhist culture', 'himalayan culture', 'organic farming', 'monasteries', 'mountain culture'],
+                'arunachal pradesh': ['tribal culture', 'buddhist heritage', 'handloom', 'hill culture', 'diverse tribes'],
+                'ladakh': ['ladakhi culture', 'buddhist monasteries', 'high altitude culture', 'adventure tourism', 'tibetan influence']
+            }
+            
+            if state in state_interests:
+                regional_interests.extend(state_interests[state])
+            
+            # City-specific interests
+            city_interests = {
+                'mumbai': ['bollywood', 'street food', 'local trains', 'marine drive', 'business hub'],
+                'delhi': ['red fort', 'street food', 'metro culture', 'political hub', 'historical monuments'],
+                'bangalore': ['it culture', 'pub culture', 'gardens', 'startup ecosystem', 'cosmopolitan'],
+                'hyderabad': ['biryani', 'charminar', 'tech industry', 'nizami culture', 'pearls'],
+                'chennai': ['filter coffee', 'marina beach', 'classical music', 'auto culture', 'south indian food'],
+                'kolkata': ['adda culture', 'fish curry', 'trams', 'cultural capital', 'literature'],
+                'pune': ['education hub', 'it industry', 'cultural events', 'weather', 'youth culture'],
+                'ahmedabad': ['business culture', 'textile industry', 'street food', 'garba', 'heritage'],
+                'jaipur': ['pink city', 'royal heritage', 'handicrafts', 'rajasthani culture', 'tourism'],
+                'lucknow': ['nawabi culture', 'kebabs', 'chikan work', 'tehzeeb', 'classical arts'],
+                'kochi': ['spices', 'backwaters', 'seafood', 'port city', 'kerala culture'],
+                'chandigarh': ['planned city', 'rock garden', 'punjabi culture', 'clean city', 'modern architecture'],
+                'bhubaneswar': ['temple city', 'odissi dance', 'classical arts', 'planned city', 'cultural heritage'],
+                'guwahati': ['tea culture', 'silk', 'river culture', 'assamese culture', 'northeast gateway'],
+                'thiruvananthapuram': ['kerala culture', 'beaches', 'ayurveda', 'classical arts', 'government hub'],
+                'indore': ['street food', 'business culture', 'clean city', 'madhya pradesh culture', 'commercial hub'],
+                'nagpur': ['oranges', 'central location', 'tiger reserves', 'marathi culture', 'geographical center'],
+                'patna': ['historical significance', 'bihar culture', 'ganga river', 'ancient heritage', 'educational hub'],
+                'bhopal': ['lake city', 'madhya pradesh culture', 'gas tragedy memorial', 'historical sites', 'cultural mix'],
+                'visakhapatnam': ['beaches', 'port city', 'steel industry', 'andhra culture', 'coastal life'],
+                'agra': ['taj mahal', 'mughal heritage', 'marble work', 'historical monuments', 'tourism'],
+                'nashik': ['wine culture', 'religious tourism', 'onions', 'marathi culture', 'pilgrimage'],
+                'faridabad': ['industrial hub', 'haryana culture', 'ncr region', 'modern city', 'business center'],
+                'meerut': ['sports goods', 'uttar pradesh culture', 'historical significance', 'agricultural hub', 'traditional crafts'],
+                'rajkot': ['business culture', 'gujarati heritage', 'handicrafts', 'industrial hub', 'cultural events'],
+                'kalyan': ['mumbai suburb', 'marathi culture', 'industrial area', 'residential hub', 'connectivity'],
+                'vasai': ['portuguese heritage', 'mumbai suburb', 'beaches', 'historical forts', 'coastal culture'],
+                'varanasi': ['spiritual capital', 'ghats', 'classical music', 'silk weaving', 'ancient culture'],
+                'srinagar': ['dal lake', 'houseboats', 'kashmiri culture', 'handicrafts', 'valley culture'],
+                'amritsar': ['golden temple', 'sikh culture', 'punjabi food', 'partition history', 'religious tourism'],
+                'allahabad': ['sangam', 'kumbh mela', 'university town', 'cultural heritage', 'religious significance'],
+                'howrah': ['howrah bridge', 'bengali culture', 'industrial hub', 'river culture', 'connectivity'],
+                'ranchi': ['jharkhand culture', 'tribal heritage', 'ms dhoni', 'hill station', 'mineral resources'],
+                'gwalior': ['fort', 'classical music', 'madhya pradesh culture', 'historical significance', 'cultural heritage'],
+                'jabalpur': ['marble rocks', 'narmada river', 'madhya pradesh culture', 'educational hub', 'natural beauty'],
+                'coimbatore': ['textile industry', 'tamil culture', 'educational hub', 'industrial city', 'south indian culture'],
+                'madurai': ['meenakshi temple', 'tamil culture', 'jasmine flowers', 'cultural heritage', 'ancient city'],
+                'jodhpur': ['blue city', 'rajasthani culture', 'desert culture', 'forts', 'handicrafts'],
+                'raipur': ['chhattisgarh culture', 'tribal heritage', 'steel industry', 'cultural mix', 'modern development'],
+                'kota': ['coaching hub', 'rajasthani culture', 'education industry', 'student city', 'competitive exams'],
+                'guwahati': ['assamese culture', 'tea industry', 'silk production', 'river culture', 'northeast hub'],
+                'chandigarh': ['planned city', 'punjabi culture', 'rock garden', 'modern architecture', 'clean city'],
+                'thiruvananthapuram': ['kerala culture', 'government hub', 'beaches', 'ayurveda', 'classical arts'],
+                'dehradun': ['hill station', 'educational hub', 'uttarakhand culture', 'natural beauty', 'pleasant weather'],
+                'durgapur': ['steel city', 'bengali culture', 'industrial hub', 'planned city', 'cultural events']
+            }
+            
+            if city in city_interests:
+                regional_interests.extend(city_interests[city])
+        
+        # Remove duplicates and return
+        return list(set(regional_interests))
+
+    def _get_location_aware_recommendations(self, user_id, context_type="general"):
+        """Get location-aware recommendations for users"""
+        if not self.db or not user_id:
+            return []
+        
+        location_prefs = self.db.get_location_preferences(user_id)
+        if not location_prefs:
+            return []
+        
+        recommendations = []
+        
+        # Get regional interests
+        regional_interests = self._get_regional_interests(location_prefs)
+        
+        if context_type == "tags":
+            # Recommend location-specific tags
+            recommendations = regional_interests[:10]  # Top 10 regional interests
+        
+        elif context_type == "events":
+            # Recommend location-specific events (placeholder)
+            city = location_prefs.get('city', '')
+            state = location_prefs.get('state', '')
+            
+            if city or state:
+                recommendations = [
+                    f"Local events in {city or state}",
+                    f"Cultural festivals in {state or 'your area'}",
+                    f"Meetups in {city or state}",
+                    f"Workshops in {city or 'your area'}",
+                    f"Community gatherings in {city or state}"
+                ]
+        
+        elif context_type == "connections":
+            # Find users in same location for recommendations
+            nearby_users = self.db.find_users_in_city(user_id)
+            recommendations = [
+                f"Connect with {len(nearby_users)} users in your area",
+                f"Find people with similar interests nearby",
+                f"Join local community groups",
+                f"Attend regional meetups"
+            ]
+        
+        return recommendations
     
     def _process_request_node(self, state: AgentState) -> AgentState:
         """

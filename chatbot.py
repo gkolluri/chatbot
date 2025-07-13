@@ -117,13 +117,49 @@ class Chatbot:
             elif comfort_level == 'mixed':
                 system_prompt += "\n\nUser is comfortable with mixed language conversations. You can blend English with subtle native language phrases."
         
-        response = self.client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
-            ]
-        )
+        # Check if user is asking about current information
+        current_keywords = ['current', 'latest', 'recent', 'now', 'today', '2024', '2025', 'news', 'trending']
+        needs_web_search = any(keyword in message.lower() for keyword in current_keywords)
+        
+        if needs_web_search:
+            # Use web search for current information
+            try:
+                from openai import OpenAI
+                web_client = OpenAI(api_key=self.api_key)
+                
+                # Use web search tool
+                web_search_tool = {"type": "web_search_preview"}
+                
+                response = web_client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": system_prompt + "\n\nUse web search to provide current, up-to-date information."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    tools=[web_search_tool],
+                    temperature=0.7
+                )
+            except Exception as e:
+                print(f"Web search error: {e}")
+                # Fallback to regular model
+                response = self.client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.7
+                )
+        else:
+            # Use regular model for general conversation
+            response = self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7
+            )
         bot_reply = response.choices[0].message.content.strip()
         self.add_bot_message(bot_reply)
         
@@ -241,19 +277,70 @@ class Chatbot:
             'language_comfort_level': 'english'
         }
 
-    def get_similar_users(self, min_common_tags=2):
-        """Get users with similar tags"""
+    def update_location_preferences(self, city=None, state=None, country=None, 
+                                   timezone=None, coordinates=None, privacy_level=None):
+        """Update user location preferences"""
         if self.db and self.user_id:
-            return self.db.find_similar_users(self.user_id, min_common_tags)
+            self.db.update_location_preferences(
+                self.user_id, city, state, country, timezone, coordinates, privacy_level
+            )
+            return True
+        return False
+
+    def get_location_preferences(self):
+        """Get user location preferences"""
+        if self.db and self.user_id:
+            return self.db.get_location_preferences(self.user_id)
+        return {
+            'city': None,
+            'state': None,
+            'country': None,
+            'timezone': None,
+            'coordinates': {},
+            'privacy_level': 'city_only',
+            'last_updated': None
+        }
+
+    def find_nearby_users(self, max_distance_km=50):
+        """Find users nearby based on location"""
+        if self.db and self.user_id:
+            return self.db.find_nearby_users(self.user_id, max_distance_km)
+        return []
+
+    def find_users_in_city(self, city=None, state=None):
+        """Find users in the same city or state"""
+        if self.db and self.user_id:
+            return self.db.find_users_in_city(self.user_id, city, state)
+        return []
+
+    def get_similar_users(self, min_common_tags=2, include_location=True):
+        """Get users with similar tags and optionally consider location"""
+        if self.db and self.user_id:
+            return self.db.find_similar_users(self.user_id, min_common_tags, include_location)
         return []
 
     def suggest_tags(self):
-        """Enhanced tag suggestions using AI and conversation analysis"""
+        """Enhanced tag suggestions using AI and conversation analysis with location context"""
         if not self.db or not self.user_id:
             return []
         
-        current_tags = self.db.get_user_tags(self.user_id)
-        conversation = self.get_conversation()
+        user_tags = self.get_user_tags()
+        if not user_tags:
+            return []
         
-        # Use the enhanced tag suggestion method
-        return self.tag_analyzer.suggest_tags_based_on_interests(current_tags, conversation) 
+        # Get user preferences for context
+        language_preferences = self.get_language_preferences()
+        location_preferences = self.get_location_preferences()
+        
+        # Get recent conversation for context
+        conversation_history = self.conversation[-10:] if self.conversation else []
+        
+        # Use enhanced tag suggestions with location context
+        suggestions = self.tag_analyzer.get_enhanced_tag_suggestions(
+            user_tags, 
+            conversation_history, 
+            language_preferences, 
+            location_preferences
+        )
+        
+        return suggestions 

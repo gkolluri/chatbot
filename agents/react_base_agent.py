@@ -60,7 +60,19 @@ class ReactBaseAgent:
         self.agent_name = agent_name
         self.db = db_interface
         self.api_key = os.getenv('OPENAI_API_KEY')
-        self.llm = ChatOpenAI(api_key=self.api_key, model="gpt-3.5-turbo") if self.api_key else None
+        # Use latest GPT-4o model with web search capabilities
+        self.llm = ChatOpenAI(
+            api_key=self.api_key, 
+            model="gpt-4o-mini",
+            temperature=0.7
+        ) if self.api_key else None
+        
+        # Web search enabled LLM for current information
+        self.web_search_llm = ChatOpenAI(
+            api_key=self.api_key,
+            model="gpt-4o-mini",
+            temperature=0.7
+        ) if self.api_key else None
         
         # Agent state
         self.is_active = True
@@ -75,6 +87,9 @@ class ReactBaseAgent:
         # Initialize tools
         self.tools = self._create_tools()
         self.agent_executor = self._create_agent_executor()
+        
+        # Web search tool for current information
+        self.web_search_tool = {"type": "web_search_preview"}
         
     def _create_tools(self) -> List[BaseTool]:
         """
@@ -172,13 +187,190 @@ class ReactBaseAgent:
             except Exception as e:
                 return f"Error in reflection: {str(e)}"
         
-        tools.extend([observe_current_state, think_about_next_action, execute_action, reflect_on_actions])
+        @tool
+        def get_location_context(user_id: str) -> str:
+            """Get location context for a user."""
+            try:
+                if not self.db:
+                    return "No database connection available"
+                
+                location_prefs = self.db.get_location_preferences(user_id)
+                if not location_prefs:
+                    return "No location information available"
+                
+                context = f"Location context for user {user_id}:\n"
+                context += f"- City: {location_prefs.get('city', 'Not set')}\n"
+                context += f"- State: {location_prefs.get('state', 'Not set')}\n"
+                context += f"- Country: {location_prefs.get('country', 'Not set')}\n"
+                context += f"- Privacy Level: {location_prefs.get('privacy_level', 'private')}\n"
+                
+                return context
+            except Exception as e:
+                return f"Error getting location context: {str(e)}"
+        
+        @tool
+        def get_cultural_context(user_id: str) -> str:
+            """Get cultural context based on user's location."""
+            try:
+                if not self.db:
+                    return "No database connection available"
+                
+                location_prefs = self.db.get_location_preferences(user_id)
+                if not location_prefs:
+                    return "No location information for cultural context"
+                
+                state = location_prefs.get('state', '').lower()
+                city = location_prefs.get('city', '').lower()
+                
+                # Indian cultural context mapping
+                cultural_context = f"Cultural context for user {user_id}:\n"
+                
+                if state:
+                    # Add state-specific cultural context
+                    state_cultures = {
+                        'maharashtra': 'Marathi culture, Bollywood, Vada Pav, Ganesh Chaturthi',
+                        'kerala': 'Malayalam culture, Kathakali, Backwaters, Onam',
+                        'tamil nadu': 'Tamil culture, Bharatanatyam, Filter coffee, Pongal',
+                        'karnataka': 'Kannada culture, Mysore Palace, Dosa, Dasara',
+                        'gujarat': 'Gujarati culture, Garba, Dhokla, Navratri',
+                        'rajasthan': 'Rajasthani culture, Folk music, Dal Baati, Teej',
+                        'punjab': 'Punjabi culture, Bhangra, Butter chicken, Baisakhi',
+                        'west bengal': 'Bengali culture, Durga Puja, Fish curry, Kali Puja'
+                    }
+                    
+                    cultural_context += f"- State Culture: {state_cultures.get(state, 'Regional Indian culture')}\n"
+                
+                if city:
+                    # Add city-specific context
+                    city_cultures = {
+                        'mumbai': 'Financial capital, Street food, Local trains, Bollywood',
+                        'delhi': 'Capital city, Mughal architecture, Chaat, Political hub',
+                        'bangalore': 'IT hub, Pub culture, Pleasant weather, Cosmopolitan',
+                        'chennai': 'Auto industry, Classical music, Marina beach, Conservative',
+                        'hyderabad': 'IT city, Biryani, Nizami culture, Charminar',
+                        'pune': 'Educational hub, Pleasant climate, IT sector, Cultural city'
+                    }
+                    
+                    cultural_context += f"- City Culture: {city_cultures.get(city, 'Local Indian culture')}\n"
+                
+                return cultural_context
+            except Exception as e:
+                return f"Error getting cultural context: {str(e)}"
+        
+        @tool
+        def calculate_distance(user_id: str, other_user_id: str) -> str:
+            """Calculate distance between two users."""
+            try:
+                if not self.db:
+                    return "No database connection available"
+                
+                user1_location = self.db.get_location_preferences(user_id)
+                user2_location = self.db.get_location_preferences(other_user_id)
+                
+                if not user1_location or not user2_location:
+                    return "Location information not available for one or both users"
+                
+                coords1 = user1_location.get('coordinates')
+                coords2 = user2_location.get('coordinates')
+                
+                if not coords1 or not coords2:
+                    return "GPS coordinates not available for distance calculation"
+                
+                # Use database method for distance calculation
+                distance = self.db._calculate_distance(
+                    coords1.get('lat'), coords1.get('lng'),
+                    coords2.get('lat'), coords2.get('lng')
+                )
+                
+                return f"Distance between users: {distance:.2f} km"
+            except Exception as e:
+                return f"Error calculating distance: {str(e)}"
+        
+        tools.extend([observe_current_state, think_about_next_action, execute_action, reflect_on_actions, 
+                     get_location_context, get_cultural_context, calculate_distance])
         
         # Add agent-specific tools
         agent_tools = self._get_agent_specific_tools()
         tools.extend(agent_tools)
         
         return tools
+    
+    def _search_web_reactive(self, query: str, context: str = None) -> str:
+        """
+        Search the web for current information using React AI pattern with web search.
+        
+        Args:
+            query: Search query
+            context: Additional context for the search
+            
+        Returns:
+            Search results and analysis
+        """
+        if not self.web_search_llm:
+            return "Web search not available - OpenAI API key required"
+        
+        try:
+            # Use web search with React AI pattern
+            llm_with_search = self.web_search_llm.bind_tools([self.web_search_tool])
+            
+            search_prompt = f"""
+            Use the React AI pattern to search for current information:
+            
+            OBSERVE: Query: {query}
+            {f"Context: {context}" if context else ""}
+            
+            THINK: What current information do I need to find about this topic?
+            - Recent developments and trends
+            - Up-to-date facts and statistics
+            - Cultural context and regional relevance
+            - Reliable sources and verification
+            
+            ACT: Search the web for comprehensive, current information
+            
+            OBSERVE: Analyze the search results and provide:
+            1. Current, verified information
+            2. Recent trends and developments
+            3. Cultural context if applicable
+            4. Source reliability assessment
+            
+            Provide a comprehensive response based on the latest information found.
+            """
+            
+            response = llm_with_search.invoke(search_prompt)
+            return response.content
+            
+        except Exception as e:
+            return f"Web search error: {str(e)}"
+    
+    def _get_trending_topics(self, category: str = None) -> str:
+        """
+        Get current trending topics using web search.
+        
+        Args:
+            category: Optional category to focus on
+            
+        Returns:
+            Current trending topics
+        """
+        if category:
+            query = f"trending topics {category} 2024 2025 current popular"
+        else:
+            query = "trending topics 2024 2025 current popular news"
+        
+        return self._search_web_reactive(query, f"Focus on current trends and popular topics")
+    
+    def _get_current_events(self, topic: str) -> str:
+        """
+        Get current events and news about a topic.
+        
+        Args:
+            topic: Topic to get current events for
+            
+        Returns:
+            Current events and news
+        """
+        query = f"current events news {topic} 2024 2025 latest updates"
+        return self._search_web_reactive(query, f"Focus on recent news and events about {topic}")
     
     def _get_agent_specific_tools(self) -> List[BaseTool]:
         """
@@ -562,8 +754,17 @@ class ReactAgentCoordinator:
             'send_message': 'ReactConversationAgent',
             'analyze_conversation': 'ReactTagAnalysisAgent',
             'get_tag_suggestions': 'ReactTagAnalysisAgent',
+            'suggest_location_tags': 'ReactTagAnalysisAgent',
             'create_profile': 'ReactUserProfileAgent',
             'find_similar_users': 'ReactUserProfileAgent',
+            'find_similar_users_with_location': 'ReactUserProfileAgent',
+            'update_location': 'ReactUserProfileAgent',
+            'find_nearby_users': 'ReactUserProfileAgent',
+            'find_users_in_city': 'ReactUserProfileAgent',
+            'rag_nearby_users': 'ReactRAGNearbyUsersAgent',
+            'semantic_search_users': 'ReactRAGNearbyUsersAgent',
+            'hybrid_user_search': 'ReactRAGNearbyUsersAgent',
+            'vectorize_user_profile': 'ReactRAGNearbyUsersAgent',
             'create_group_chat': 'ReactGroupChatAgent',
             'send_group_message': 'ReactGroupChatAgent',
             'get_group_messages': 'ReactGroupChatAgent',

@@ -50,15 +50,34 @@ class GroupChat:
         """
         
         try:
-            response = self.client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "You are a helpful AI assistant participating in a group chat. Be conversational and engaging."},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=200,
-                temperature=0.7
-            )
+            # Check if group discussion needs current information
+            current_keywords = ['current', 'latest', 'recent', 'now', 'today', '2024', '2025', 'news', 'trending']
+            needs_web_search = any(keyword in prompt.lower() for keyword in current_keywords)
+            
+            if needs_web_search:
+                # Use web search for current information
+                web_search_tool = {"type": "web_search_preview"}
+                
+                response = self.client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": "You are a helpful AI assistant participating in a group chat. Be conversational and engaging. Use web search to provide current information."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    tools=[web_search_tool],
+                    max_tokens=250,
+                    temperature=0.7
+                )
+            else:
+                response = self.client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": "You are a helpful AI assistant participating in a group chat. Be conversational and engaging."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_tokens=200,
+                    temperature=0.7
+                )
             return response.choices[0].message.content.strip()
         except Exception as e:
             return f"Sorry, I'm having trouble responding right now. Error: {str(e)}"

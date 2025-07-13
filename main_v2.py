@@ -288,33 +288,507 @@ def _show_profile_interface(chatbot):
         st.write("No new tags to discover right now. Check back later!")
 
 def _show_similar_users_interface(chatbot):
-    """Show similar users interface"""
+    """Show similar users interface with location-based features"""
     # Update last activity
     session_manager.update_last_activity()
     
     st.markdown("## 🤝 Similar Users")
     
-    # Find similar users using multi-agent system
-    similar_users_result = chatbot.process_request("get_similar_users", {"min_common_tags": 1})
-    similar_users = similar_users_result.get('similar_users', [])
+    # User's location for context
+    user_location = chatbot.get_location_preferences(chatbot.user_id)
     
-    if similar_users:
-        st.markdown("### 👥 Users with Similar Interests")
+    # Search options
+    st.markdown("### 🔍 Search Options")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        search_type = st.selectbox(
+            "Search Type",
+            options=["interests", "location", "both"],
+            format_func=lambda x: {
+                "interests": "🏷️ By Interests Only",
+                "location": "📍 By Location Only", 
+                "both": "🎯 By Interests + Location"
+            }[x],
+            index=2
+        )
+    
+    with col2:
+        if search_type in ["interests", "both"]:
+            min_tags = st.slider("Minimum Common Tags", 1, 5, 1)
+        else:
+            min_tags = 1
+    
+    # Location-based search options
+    if search_type in ["location", "both"]:
+        st.markdown("#### 📍 Location Search")
+        location_search_type = st.radio(
+            "Location Search Type",
+            options=["nearby", "same_city", "same_state"],
+            format_func=lambda x: {
+                "nearby": "🎯 Nearby (GPS-based)",
+                "same_city": "🏙️ Same City",
+                "same_state": "🗺️ Same State"
+            }[x],
+            horizontal=True
+        )
+        
+        if location_search_type == "nearby":
+            max_distance = st.slider("Max Distance (km)", 5, 200, 50)
+        else:
+            max_distance = None
+    
+    # Find users based on search type
+    if search_type == "interests":
+        # Find similar users using multi-agent system
+        similar_users_result = chatbot.process_request("get_similar_users", {"min_common_tags": min_tags})
+        similar_users = similar_users_result.get('similar_users', [])
+        
+        # Add dummy location info for consistency
         for user in similar_users:
-            with st.expander(f"👤 {user['name']} (Similarity: {user['similarity_score']} tags)"):
-                st.write(f"**Common tags:** {', '.join(user['common_tags'])}")
+            user['distance_km'] = None
+            user['location_info'] = {}
+            
+    elif search_type == "location":
+        # Find nearby users using multi-agent system
+        if location_search_type == "nearby":
+            nearby_result = chatbot.find_nearby_users(chatbot.user_id, max_distance, 20)
+            if nearby_result.get('success'):
+                nearby_users = nearby_result.get('nearby_users', [])
+            else:
+                nearby_users = []
+        elif location_search_type == "same_city":
+            city_result = chatbot.find_users_in_city(chatbot.user_id, user_location.get('city'), user_location.get('state'))
+            if city_result.get('success'):
+                nearby_users = city_result.get('city_users', [])
+            else:
+                nearby_users = []
+        else:  # same_state
+            state_result = chatbot.find_users_in_city(chatbot.user_id, None, user_location.get('state'))
+            if state_result.get('success'):
+                nearby_users = state_result.get('city_users', [])
+            else:
+                nearby_users = []
+        
+        # Convert to similar users format
+        similar_users = []
+        for user in nearby_users:
+            similar_users.append({
+                'user_id': user['user_id'],
+                'name': user['name'],
+                'similarity_score': 0,
+                'common_tags': [],
+                'total_score': 0,
+                'distance_km': user.get('distance_km'),
+                'location_info': {
+                    'city': user.get('city'),
+                    'state': user.get('state'),
+                    'distance_km': user.get('distance_km'),
+                    'privacy_level': user.get('privacy_level', 'city_only')
+                }
+            })
+            
+    else:  # both
+        # Find similar users using multi-agent system
+        similar_users_result = chatbot.process_request("get_similar_users", {"min_common_tags": min_tags})
+        similar_users = similar_users_result.get('similar_users', [])
+        
+        # Also get location-based users to combine results
+        if location_search_type == "nearby":
+            nearby_result = chatbot.find_nearby_users(chatbot.user_id, max_distance, 20)
+            if nearby_result.get('success'):
+                nearby_users = nearby_result.get('nearby_users', [])
+            else:
+                nearby_users = []
+        elif location_search_type == "same_city":
+            city_result = chatbot.find_users_in_city(chatbot.user_id, user_location.get('city'), user_location.get('state'))
+            if city_result.get('success'):
+                nearby_users = city_result.get('city_users', [])
+            else:
+                nearby_users = []
+        else:  # same_state
+            state_result = chatbot.find_users_in_city(chatbot.user_id, None, user_location.get('state'))
+            if state_result.get('success'):
+                nearby_users = state_result.get('city_users', [])
+            else:
+                nearby_users = []
+        
+        # Merge location-based users with interest-based users
+        user_ids_seen = {user['user_id'] for user in similar_users}
+        for nearby_user in nearby_users:
+            if nearby_user['user_id'] not in user_ids_seen:
+                # Get tags for this user to calculate similarity
+                other_tags = set(chatbot.db.get_user_tags(nearby_user['user_id']))
+                user_tags = set(chatbot.get_user_tags())
+                common_tags = user_tags.intersection(other_tags)
                 
-                # Create group chat button
-                if st.button(f"Start Group Chat with {user['name']}", key=f"group_{user['user_id']}"):
-                    _create_group_chat_with_user(chatbot, user)
+                similar_users.append({
+                    'user_id': nearby_user['user_id'],
+                    'name': nearby_user['name'],
+                    'common_tags': list(common_tags),
+                    'similarity_score': len(common_tags),
+                    'location_bonus': 2 if location_search_type == "nearby" else 1,
+                    'total_score': len(common_tags) + (2 if location_search_type == "nearby" else 1),
+                    'distance_km': nearby_user.get('distance_km'),
+                    'location_info': {
+                        'city': nearby_user.get('city'),
+                        'state': nearby_user.get('state'),
+                        'distance_km': nearby_user.get('distance_km'),
+                        'privacy_level': nearby_user.get('privacy_level', 'city_only')
+                    }
+                })
+        
+        # Add location info to existing similar users
+        for user in similar_users:
+            if 'location_info' not in user:
+                user['location_info'] = {}
+                user['distance_km'] = None
+        
+        # Re-sort by total score
+        similar_users.sort(key=lambda x: x.get('total_score', x.get('similarity_score', 0)), reverse=True)
+    
+    # Display results
+    if similar_users:
+        st.markdown(f"### 👥 Found {len(similar_users)} Users")
+        
+        for user in similar_users:
+            # Create user card with location info
+            location_info = user.get('location_info', {})
+            
+            # Build location display
+            location_display = []
+            if location_info.get('city'):
+                location_display.append(f"🏙️ {location_info['city']}")
+            if location_info.get('state'):
+                location_display.append(f"🗺️ {location_info['state']}")
+            if location_info.get('distance_km') is not None:
+                location_display.append(f"📍 {location_info['distance_km']} km away")
+            
+            location_text = " • ".join(location_display) if location_display else "📍 Location not shared"
+            
+            # Build score display
+            score_parts = []
+            if user.get('similarity_score', 0) > 0:
+                score_parts.append(f"🏷️ {user['similarity_score']} common tags")
+            if user.get('location_bonus', 0) > 0:
+                score_parts.append(f"📍 +{user['location_bonus']} location bonus")
+            
+            score_text = " • ".join(score_parts) if score_parts else "No common interests"
+            
+            with st.expander(f"👤 {user['name']} • {score_text}"):
+                # Location information
+                st.markdown(f"**📍 Location:** {location_text}")
+                
+                # Distance information (prominently displayed)
+                if user.get('distance_km') is not None:
+                    st.markdown(f"**📏 Distance:** {user['distance_km']} km from you")
+                
+                # Common interests
+                if user.get('common_tags'):
+                    st.markdown(f"**🏷️ Common Interests:** {', '.join(user['common_tags'])}")
+                else:
+                    st.markdown("**🏷️ Common Interests:** None found")
+                
+                # Additional location details
+                if location_info:
+                    details = []
+                    if location_info.get('city') and user_location.get('city'):
+                        if location_info['city'].lower() == user_location['city'].lower():
+                            details.append("🏙️ Same city")
+                    if location_info.get('state') and user_location.get('state'):
+                        if location_info['state'].lower() == user_location['state'].lower():
+                            details.append("🗺️ Same state")
+                    
+                    if details:
+                        st.markdown(f"**🎯 Location Match:** {', '.join(details)}")
+                
+                # Privacy level
+                privacy_level = location_info.get('privacy_level', 'city_only')
+                privacy_emoji = {
+                    'exact': '🎯',
+                    'city_only': '🏙️',
+                    'state_only': '🗺️',
+                    'country_only': '🌍',
+                    'private': '🔒'
+                }.get(privacy_level, '❓')
+                
+                st.markdown(f"**🔒 Privacy Level:** {privacy_emoji} {privacy_level.replace('_', ' ').title()}")
+                
+                # Action buttons
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button(f"💬 Start Group Chat", key=f"group_{user['user_id']}"):
+                        _create_group_chat_with_user(chatbot, user)
+                
+                with col2:
+                    if st.button(f"👤 View Profile", key=f"profile_{user['user_id']}"):
+                        st.info("Profile viewing feature coming soon!")
+        
+        # Summary statistics
+        st.markdown("### 📊 Search Results Summary")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("Total Users Found", len(similar_users))
+        
+        with col2:
+            if search_type in ["location", "both"]:
+                users_with_distance = [u for u in similar_users if u.get('distance_km') is not None]
+                if users_with_distance:
+                    avg_distance = sum(u['distance_km'] for u in users_with_distance) / len(users_with_distance)
+                    st.metric("Average Distance", f"{avg_distance:.1f} km")
+                else:
+                    st.metric("GPS-based Results", "0")
+            else:
+                common_interests = sum(len(u.get('common_tags', [])) for u in similar_users)
+                st.metric("Total Common Interests", common_interests)
+        
+        with col3:
+            if search_type in ["location", "both"]:
+                same_city_count = sum(1 for u in similar_users 
+                                    if u.get('location_info', {}).get('city', '').lower() == user_location.get('city', '').lower())
+                st.metric("Same City", same_city_count)
+            else:
+                high_similarity = sum(1 for u in similar_users if u.get('similarity_score', 0) >= 3)
+                st.metric("High Similarity (3+ tags)", high_similarity)
+        
     else:
         st.markdown("### 👥 No Similar Users Found")
-        st.write("No users with similar interests found yet. This could be because:")
+        st.write("No users found matching your criteria. This could be because:")
         st.write("- You don't have many tags yet")
         st.write("- Other users don't have similar tags")
-        st.write("- You're the first user in the system")
+        st.write("- No users are in your selected location area")
+        st.write("- You're among the first users in the system")
         
-        st.markdown("**Tip:** Add more tags to your profile to find similar users!")
+        st.markdown("**Tips:**")
+        st.write("- 🏷️ Add more tags to your profile to find like-minded people")
+        st.write("- 📍 Try different location search options")
+        st.write("- 🔍 Expand your search radius for nearby users")
+        st.write("- 👥 Invite friends from your area to join")
+    
+    # Quick actions
+    st.markdown("### ⚡ Quick Actions")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("🔄 Refresh Search", use_container_width=True):
+            st.rerun()
+    
+    with col2:
+        if st.button("📍 Update Location", use_container_width=True):
+            st.session_state['current_view'] = 'profile'
+            st.rerun()
+    
+    with col3:
+        if st.button("🏷️ Add More Tags", use_container_width=True):
+            st.session_state['current_view'] = 'profile'
+            st.rerun()
+
+def _show_nearby_users_interface(chatbot):
+    """Show nearby users interface focused on location-based discovery"""
+    # Update last activity
+    session_manager.update_last_activity()
+    
+    st.markdown("## 📍 Nearby Users")
+    
+    # Get user's location
+    user_location = chatbot.get_location_preferences(chatbot.user_id)
+    
+    if not any(user_location.values()):
+        st.warning("⚠️ Location not set up yet!")
+        st.markdown("### 📍 Set Up Your Location")
+        st.write("To find nearby users, please add your location information first.")
+        
+        if st.button("📍 Go to Profile Settings", use_container_width=True):
+            st.session_state['current_view'] = 'profile'
+            st.rerun()
+        return
+    
+    # Display current location
+    st.markdown("### 📍 Your Current Location")
+    location_display = []
+    if user_location.get('city'):
+        location_display.append(f"🏙️ {user_location['city']}")
+    if user_location.get('state'):
+        location_display.append(f"🗺️ {user_location['state']}")
+    if user_location.get('country'):
+        location_display.append(f"🌍 {user_location['country']}")
+    
+    if location_display:
+        st.write(" • ".join(location_display))
+    
+    # Search options
+    st.markdown("### 🔍 Search Options")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        search_radius = st.selectbox(
+            "Search Area",
+            options=["nearby_gps", "same_city", "same_state"],
+            format_func=lambda x: {
+                "nearby_gps": "📍 GPS Radius",
+                "same_city": "🏙️ Same City",
+                "same_state": "🗺️ Same State"
+            }[x]
+        )
+    
+    with col2:
+        if search_radius == "nearby_gps":
+            max_distance = st.slider("Max Distance (km)", 5, 500, 50)
+        else:
+            max_distance = None
+    
+    # Find nearby users
+    if search_radius == "nearby_gps" and max_distance:
+        nearby_result = chatbot.find_nearby_users(chatbot.user_id, max_distance, 20)
+        if nearby_result.get('success'):
+            nearby_users = nearby_result.get('nearby_users', [])
+        else:
+            nearby_users = []
+        search_type = f"within {max_distance}km"
+    elif search_radius == "same_city":
+        city_result = chatbot.find_users_in_city(chatbot.user_id, user_location.get('city'), user_location.get('state'))
+        if city_result.get('success'):
+            nearby_users = city_result.get('city_users', [])
+        else:
+            nearby_users = []
+        search_type = "in your city"
+    else:  # same_state
+        state_result = chatbot.find_users_in_city(chatbot.user_id, None, user_location.get('state'))
+        if state_result.get('success'):
+            nearby_users = state_result.get('city_users', [])
+        else:
+            nearby_users = []
+        search_type = "in your state"
+    
+    # Display results
+    if nearby_users:
+        st.markdown(f"### 👥 Found {len(nearby_users)} Users {search_type}")
+        
+        for user in nearby_users:
+            # Create user card with prominent distance display
+            distance_text = f" • {user.get('distance_km', 0)} km away" if user.get('distance_km') is not None else ""
+            city_text = f" • {user.get('city', 'Unknown city')}" if user.get('city') else ""
+            
+            with st.expander(f"👤 {user['name']}{city_text}{distance_text}"):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Location info with prominent distance
+                    st.markdown("**📍 Location Information**")
+                    location_info = []
+                    if user.get('city'):
+                        location_info.append(f"🏙️ **City:** {user['city']}")
+                    if user.get('state'):
+                        location_info.append(f"🗺️ **State:** {user['state']}")
+                    if user.get('distance_km') is not None:
+                        location_info.append(f"📏 **Distance:** {user['distance_km']} km from you")
+                    
+                    for info in location_info:
+                        st.markdown(info)
+                    
+                    # Privacy level
+                    privacy_level = user.get('privacy_level', 'city_only')
+                    privacy_emoji = {
+                        'exact': '🎯',
+                        'city_only': '🏙️',
+                        'state_only': '🗺️',
+                        'country_only': '🌍',
+                        'private': '🔒'
+                    }.get(privacy_level, '❓')
+                    
+                    st.markdown(f"**🔒 Privacy:** {privacy_emoji} {privacy_level.replace('_', ' ').title()}")
+                
+                with col2:
+                    # Common interests
+                    st.markdown("**🏷️ Common Interests**")
+                    try:
+                        other_tags = set(chatbot.db.get_user_tags(user['user_id']))
+                        user_tags = set(chatbot.get_user_tags())
+                        common_tags = user_tags.intersection(other_tags)
+                        
+                        if common_tags:
+                            for tag in list(common_tags)[:5]:  # Show max 5 tags
+                                st.markdown(f"• {tag}")
+                            if len(common_tags) > 5:
+                                st.markdown(f"• ... and {len(common_tags) - 5} more")
+                        else:
+                            st.markdown("• No common interests found")
+                    except Exception as e:
+                        st.markdown("• Unable to load interests")
+                
+                # Action buttons
+                st.markdown("---")
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button(f"💬 Start Chat", key=f"chat_{user['user_id']}"):
+                        # Create a user object for group chat creation
+                        user_obj = {
+                            'user_id': user['user_id'],
+                            'name': user['name'],
+                            'common_tags': list(common_tags) if 'common_tags' in locals() else []
+                        }
+                        _create_group_chat_with_user(chatbot, user_obj)
+                
+                with col2:
+                    if st.button(f"👤 View Details", key=f"details_{user['user_id']}"):
+                        st.info("Detailed profile viewing coming soon!")
+        
+        # Summary statistics
+        st.markdown("### 📊 Location Summary")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("Total Users", len(nearby_users))
+        
+        with col2:
+            if search_radius == "nearby_gps":
+                users_with_distance = [u for u in nearby_users if u.get('distance_km') is not None]
+                if users_with_distance:
+                    avg_distance = sum(u['distance_km'] for u in users_with_distance) / len(users_with_distance)
+                    st.metric("Average Distance", f"{avg_distance:.1f} km")
+                else:
+                    st.metric("GPS Results", "0")
+            else:
+                same_city_count = sum(1 for user in nearby_users 
+                                    if user.get('city', '').lower() == user_location.get('city', '').lower())
+                st.metric("Same City", same_city_count)
+        
+        with col3:
+            same_state_count = sum(1 for user in nearby_users 
+                                 if user.get('state', '').lower() == user_location.get('state', '').lower())
+            st.metric("Same State", same_state_count)
+    
+    else:
+        st.markdown(f"### 👥 No Users Found {search_type}")
+        st.write("No users found in your search area. This could be because:")
+        st.write("- You're among the first users in your area")
+        st.write("- Other users have more restrictive privacy settings")
+        st.write("- Try expanding your search radius or changing search options")
+        
+        st.markdown("**Tips:**")
+        st.write("- 🔍 Try different search options above")
+        st.write("- 🏷️ Add more interests to find like-minded people")
+        st.write("- 👥 Invite friends from your area to join")
+        st.write("- 📍 Check your location privacy settings")
+    
+    # Quick actions
+    st.markdown("### ⚡ Quick Actions")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("🏷️ Find by Interests", use_container_width=True):
+            st.session_state['current_view'] = 'similar_users'
+            st.rerun()
+    
+    with col2:
+        if st.button("📍 Update Location", use_container_width=True):
+            st.session_state['current_view'] = 'profile'
+            st.rerun()
+    
+    with col3:
+        if st.button("🔄 Refresh Search", use_container_width=True):
+            st.rerun()
 
 def _show_group_chats_interface(chatbot):
     """Show group chats interface"""
@@ -903,6 +1377,146 @@ def _show_system_status_interface(chatbot):
     
     with col3:
         st.metric("Avg Response Time", f"{random.uniform(0.8, 1.5):.1f}s", f"-{random.uniform(0.1, 0.3):.1f}s")
+    
+    # User List Section
+    st.markdown("---")
+    st.markdown("### 👥 User Directory")
+    st.markdown("*View all registered users and their location information*")
+    
+    try:
+        # Get all users summary
+        all_users = chatbot.db.get_all_users_summary()
+        
+        if all_users:
+            # Display user count
+            st.markdown(f"**Total Users:** {len(all_users)}")
+            
+            # Search and filter options
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                search_term = st.text_input("🔍 Search Users", placeholder="Search by name...")
+            
+            with col2:
+                location_filter = st.selectbox("📍 Filter by Location", 
+                                             ["All Locations", "With Location", "Without Location"])
+            
+            with col3:
+                privacy_filter = st.selectbox("🔒 Privacy Level", 
+                                            ["All", "exact", "city_only", "state_only", "country_only", "private"])
+            
+            # Apply filters
+            filtered_users = all_users
+            
+            if search_term:
+                filtered_users = [user for user in filtered_users 
+                                if search_term.lower() in user['name'].lower()]
+            
+            if location_filter == "With Location":
+                filtered_users = [user for user in filtered_users 
+                                if user['location'].get('city') or user['location'].get('state') or user['location'].get('country')]
+            elif location_filter == "Without Location":
+                filtered_users = [user for user in filtered_users 
+                                if not (user['location'].get('city') or user['location'].get('state') or user['location'].get('country'))]
+            
+            if privacy_filter != "All":
+                filtered_users = [user for user in filtered_users 
+                                if user['location'].get('privacy_level') == privacy_filter]
+            
+            # Display filtered results
+            st.markdown(f"**Showing {len(filtered_users)} of {len(all_users)} users**")
+            
+            # Pagination
+            users_per_page = 10
+            total_pages = (len(filtered_users) + users_per_page - 1) // users_per_page
+            
+            if total_pages > 1:
+                page = st.selectbox("📄 Page", range(1, total_pages + 1))
+                start_idx = (page - 1) * users_per_page
+                end_idx = start_idx + users_per_page
+                page_users = filtered_users[start_idx:end_idx]
+            else:
+                page_users = filtered_users
+            
+            # Display users in a table-like format
+            for user in page_users:
+                with st.expander(f"👤 {user['name']} ({user['user_id'][:8]}...)", expanded=False):
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown("**📋 Profile Information**")
+                        st.write(f"**Name:** {user['name']}")
+                        st.write(f"**User ID:** `{user['user_id']}`")
+                        st.write(f"**Created:** {user.get('created_at', 'Unknown')}")
+                        st.write(f"**Last Updated:** {user.get('profile_updated_at', 'Unknown')}")
+                        
+                        # Language preferences
+                        st.markdown("**🌐 Language Preferences**")
+                        st.write(f"**Native Language:** {user.get('native_language', 'Not specified')}")
+                        st.write(f"**Preferred Languages:** {', '.join(user.get('preferred_languages', [])) or 'None'}")
+                        st.write(f"**Comfort Level:** {user.get('language_comfort_level', 'english')}")
+                        
+                        # Tags
+                        st.markdown("**🏷️ Interest Tags**")
+                        if user.get('tags'):
+                            tags_display = ', '.join([f"`{tag}`" for tag in user['tags'][:10]])
+                            if len(user['tags']) > 10:
+                                tags_display += f" ... (+{len(user['tags']) - 10} more)"
+                            st.markdown(tags_display)
+                        else:
+                            st.write("No tags available")
+                    
+                    with col2:
+                        st.markdown("**📍 Location Information**")
+                        location = user.get('location', {})
+                        
+                        # Location details
+                        if location.get('city') or location.get('state') or location.get('country'):
+                            location_parts = []
+                            if location.get('city'):
+                                location_parts.append(f"🏙️ **City:** {location['city']}")
+                            if location.get('state'):
+                                location_parts.append(f"🗺️ **State:** {location['state']}")
+                            if location.get('country'):
+                                location_parts.append(f"🌍 **Country:** {location['country']}")
+                            if location.get('timezone'):
+                                location_parts.append(f"🕐 **Timezone:** {location['timezone']}")
+                            
+                            for part in location_parts:
+                                st.markdown(part)
+                        else:
+                            st.write("No location information available")
+                        
+                        # Privacy level
+                        privacy_level = location.get('privacy_level', 'city_only')
+                        privacy_emoji = {
+                            'exact': '🎯',
+                            'city_only': '🏙️',
+                            'state_only': '🗺️',
+                            'country_only': '🌍',
+                            'private': '🔒'
+                        }.get(privacy_level, '❓')
+                        
+                        st.markdown(f"**🔒 Privacy Level:** {privacy_emoji} {privacy_level.replace('_', ' ').title()}")
+                        
+                        # Coordinates (if available and privacy allows)
+                        coordinates = location.get('coordinates', {})
+                        if coordinates.get('latitude') and coordinates.get('longitude'):
+                            if privacy_level in ['exact', 'city_only']:
+                                st.markdown(f"**📍 Coordinates:** {coordinates['latitude']:.4f}, {coordinates['longitude']:.4f}")
+                            else:
+                                st.markdown("**📍 Coordinates:** Hidden (Privacy)")
+                        else:
+                            st.markdown("**📍 Coordinates:** Not available")
+                        
+                        # Last location update
+                        if location.get('last_updated'):
+                            st.markdown(f"**🕐 Last Updated:** {location['last_updated']}")
+        else:
+            st.info("No users found in the database.")
+    
+    except Exception as e:
+        st.error(f"❌ Error loading user data: {str(e)}")
 
 # Initialize DB
 if 'db' not in st.session_state:
@@ -941,6 +1555,7 @@ if session_manager.is_user_authenticated():
         'chat': '💬 Chat',
         'profile': '👤 Profile & Tags',
         'similar_users': '🤝 Similar Users',
+        'nearby_users': '📍 Nearby Users',
         'group_chats': '👥 Group Chats',
         'group_chat': '💬 Group Chat',
         'system_status': '🛠️ System Status'
@@ -977,6 +1592,8 @@ if session_manager.is_user_authenticated():
         _show_profile_interface(chatbot)
     elif st.session_state['current_view'] == 'similar_users':
         _show_similar_users_interface(chatbot)
+    elif st.session_state['current_view'] == 'nearby_users':
+        _show_nearby_users_interface(chatbot)
     elif st.session_state['current_view'] == 'group_chats':
         _show_group_chats_interface(chatbot)
     elif st.session_state['current_view'] == 'group_chat':

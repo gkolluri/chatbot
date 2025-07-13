@@ -75,10 +75,14 @@ class TagAnalyzer:
         Tags:"""
         
         try:
+            # Use web search for current trends and topics
+            web_search_tool = {"type": "web_search_preview"}
+            
             response = self.client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=50,
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt + "\n\nUse web search to find current trending topics and interests."}],
+                tools=[web_search_tool],
+                max_tokens=100,
                 temperature=0.3
             )
             
@@ -90,76 +94,83 @@ class TagAnalyzer:
             print(f"Error in AI tag extraction: {e}")
             return []
 
-    def generate_dynamic_tag_suggestions(self, user_tags, conversation=None, language_preferences=None):
-        """Generate dynamic tag suggestions using OpenAI LLM with language preferences"""
+    def generate_dynamic_tag_suggestions(self, user_tags, conversation_history, language_preferences=None, location_preferences=None):
+        """Generate dynamic tag suggestions using AI with location context"""
         if not user_tags:
             return []
         
+        # Build context for AI
+        context_parts = [
+            f"User's current tags: {', '.join(user_tags)}",
+            f"Conversation context: {' '.join([msg[1] for msg in conversation_history[-5:]])}"
+        ]
+        
+        # Add language context
+        if language_preferences:
+            native_lang = language_preferences.get('native_language')
+            if native_lang:
+                context_parts.append(f"User's native language: {native_lang}")
+        
+        # Add location context
+        if location_preferences:
+            city = location_preferences.get('city')
+            state = location_preferences.get('state')
+            country = location_preferences.get('country')
+            
+            location_context = []
+            if city:
+                location_context.append(f"City: {city}")
+            if state:
+                location_context.append(f"State: {state}")
+            if country:
+                location_context.append(f"Country: {country}")
+            
+            if location_context:
+                context_parts.append(f"User's location: {', '.join(location_context)}")
+        
+        context = "\n".join(context_parts)
+        
+        prompt = f"""
+        Based on the following user information, suggest 5-8 relevant tags that would interest this user:
+
+        {context}
+
+        Guidelines:
+        1. Suggest tags that are related to but not identical to existing tags
+        2. Consider the user's conversation topics and interests
+        3. Include location-specific interests if relevant (local culture, regional activities, etc.)
+        4. Include language-specific interests if relevant (literature, cinema, etc.)
+        5. Focus on discoverable interests they might enjoy
+        6. Use lowercase, simple phrases
+        7. Avoid duplicate or very similar tags to existing ones
+
+        Provide only the tag suggestions, one per line, without explanations.
+        """
+        
         try:
-            # Prepare context for AI
-            context = f"User's current tags: {', '.join(user_tags)}"
-            if conversation:
-                conv_text = "\n".join([f"{role}: {msg}" for role, msg in conversation[-10:]])  # Last 10 messages
-                context += f"\nRecent conversation:\n{conv_text}"
-            
-            # Add language context
-            language_context = ""
-            if language_preferences:
-                native_lang = language_preferences.get('native_language')
-                preferred_langs = language_preferences.get('preferred_languages', [])
-                comfort_level = language_preferences.get('language_comfort_level', 'english')
-                
-                if native_lang:
-                    language_context += f"\nUser's native language: {native_lang}"
-                if preferred_langs:
-                    language_context += f"\nUser's preferred languages: {', '.join(preferred_langs)}"
-                language_context += f"\nLanguage comfort level: {comfort_level}"
-            
-            prompt = f"""
-            Based on the user's current tags and context, generate 8-12 additional tag suggestions that help connect people with shared interests.
-            Include the following types of suggestions:
-            1. Category tags (broader categories the user might be interested in)
-            2. Related synonyms (different ways to express similar interests)
-            3. Subcategories (more specific areas within their interests)
-            4. Indian language equivalents (subtle, for users who prefer native languages)
-            5. Contemporary topics and trends
-            6. Related concepts (closely related topics)
-            7. Emerging trends in their areas of interest
-            8. Popular interests among Indian users and NRIs
-            
-            Focus on interests that help people connect and find common ground.
-            Include both English and Indian language terms where appropriate, but keep it subtle.
-            
-            {language_context}
-            
-            Context: {context}
-            
-            Return only the tags as a comma-separated list, no explanations or categories.
-            Make suggestions diverse and relevant to the user's interests, prioritizing connection and shared interests.
-            """
-            
             response = self.client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": "You are an expert at understanding user interests and suggesting relevant tags. Provide diverse, relevant suggestions."},
+                    {"role": "system", "content": "You are a helpful assistant that suggests relevant interest tags based on user context."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=150,
-                temperature=0.7
+                temperature=0.7,
+                max_tokens=200
             )
             
-            suggestions_text = response.choices[0].message.content.strip()
-            suggestions = [tag.strip().lower() for tag in suggestions_text.split(',') if tag.strip()]
+            suggestions = response.choices[0].message.content.strip().split('\n')
+            # Clean and validate suggestions
+            cleaned_suggestions = []
+            for suggestion in suggestions:
+                cleaned = self.clean_tag(suggestion.strip())
+                if cleaned and self.validate_tag(cleaned) and cleaned not in user_tags:
+                    cleaned_suggestions.append(cleaned)
             
-            # Filter out duplicates and existing tags
-            existing_tags_set = set(user_tags)
-            unique_suggestions = [tag for tag in suggestions if tag not in existing_tags_set]
-            
-            return unique_suggestions[:10]  # Limit to 10 suggestions
+            return cleaned_suggestions[:8]  # Return max 8 suggestions
             
         except Exception as e:
-            print(f"Error generating dynamic tag suggestions: {e}")
-            return self._fallback_tag_suggestions(user_tags)
+            print(f"Error generating dynamic suggestions: {e}")
+            return []
 
     def _fallback_tag_suggestions(self, user_tags):
         """Fallback tag suggestions using static mappings"""
@@ -309,6 +320,136 @@ class TagAnalyzer:
         except Exception as e:
             print(f"Error generating related concept suggestions: {e}")
             return []
+
+    def get_location_based_tag_suggestions(self, location_preferences):
+        """Get tag suggestions based on user's location"""
+        if not location_preferences:
+            return []
+        
+        suggestions = []
+        city = location_preferences.get('city', '').lower()
+        state = location_preferences.get('state', '').lower()
+        country = location_preferences.get('country', '').lower()
+        
+        # India-specific location tags
+        if country == 'india':
+            # Add general Indian cultural tags
+            suggestions.extend([
+                'indian culture', 'festivals', 'classical music', 'traditional arts',
+                'regional cuisine', 'bollywood', 'cricket', 'yoga', 'meditation'
+            ])
+            
+            # State-specific tags
+            state_tags = {
+                'maharashtra': ['marathi culture', 'bollywood', 'ganesh chaturthi', 'vada pav', 'lavani'],
+                'kerala': ['malayalam culture', 'kathakali', 'ayurveda', 'backwaters', 'coconut cuisine'],
+                'tamil nadu': ['tamil culture', 'bharatanatyam', 'carnatic music', 'temple architecture', 'filter coffee'],
+                'karnataka': ['kannada culture', 'yakshagana', 'classical music', 'it industry', 'mysore silk'],
+                'west bengal': ['bengali culture', 'durga puja', 'rabindra sangeet', 'fish curry', 'literature'],
+                'rajasthan': ['rajasthani culture', 'folk dance', 'desert tourism', 'handicrafts', 'royal heritage'],
+                'punjab': ['punjabi culture', 'bhangra', 'sikh heritage', 'punjabi music', 'agriculture'],
+                'gujarat': ['gujarati culture', 'garba', 'business', 'textile industry', 'vegetarian cuisine'],
+                'goa': ['goan culture', 'beach life', 'seafood', 'portuguese heritage', 'carnival'],
+                'andhra pradesh': ['telugu culture', 'kuchipudi', 'spicy food', 'biryani', 'pearls'],
+                'telangana': ['telugu culture', 'hyderabadi cuisine', 'tech industry', 'qawwali', 'nizami culture'],
+                'odisha': ['odia culture', 'odissi dance', 'jagannath temple', 'classical arts', 'silver work'],
+                'assam': ['assamese culture', 'bihu', 'tea culture', 'silk weaving', 'tribal arts'],
+                'bihar': ['bihari culture', 'madhubani art', 'chhath puja', 'folk music', 'buddhist heritage'],
+                'jharkhand': ['tribal culture', 'folk dance', 'handicrafts', 'forest culture', 'minerals'],
+                'uttarakhand': ['pahadi culture', 'spiritual tourism', 'adventure sports', 'hill stations', 'yoga'],
+                'himachal pradesh': ['hill culture', 'buddhist heritage', 'adventure tourism', 'apple orchards', 'handicrafts'],
+                'jammu and kashmir': ['kashmiri culture', 'handicrafts', 'saffron', 'valley culture', 'shikaras'],
+                'delhi': ['delhi culture', 'street food', 'historical monuments', 'political awareness', 'metro culture'],
+                'uttar pradesh': ['up culture', 'classical music', 'mughal heritage', 'spiritual tourism', 'handicrafts'],
+                'madhya pradesh': ['mp culture', 'tribal arts', 'wildlife', 'khajuraho', 'central indian culture'],
+                'chhattisgarh': ['chhattisgarhi culture', 'tribal heritage', 'folk arts', 'rice culture', 'handicrafts'],
+                'haryana': ['haryanvi culture', 'folk music', 'sports', 'agricultural lifestyle', 'traditional arts'],
+                'manipur': ['manipuri culture', 'manipuri dance', 'martial arts', 'handloom', 'valley culture'],
+                'meghalaya': ['khasi culture', 'living root bridges', 'hill stations', 'music culture', 'matrilineal society'],
+                'mizoram': ['mizo culture', 'bamboo dance', 'handloom', 'hill culture', 'christian heritage'],
+                'nagaland': ['naga culture', 'hornbill festival', 'tribal arts', 'handloom', 'hill culture'],
+                'tripura': ['tripuri culture', 'handloom', 'bamboo crafts', 'tribal arts', 'hill culture'],
+                'sikkim': ['sikkimese culture', 'buddhist heritage', 'organic farming', 'mountain culture', 'monasteries'],
+                'arunachal pradesh': ['arunachali culture', 'tribal heritage', 'buddhist culture', 'handloom', 'hill culture'],
+                'ladakh': ['ladakhi culture', 'buddhist monasteries', 'high altitude culture', 'adventure tourism', 'tibetan influence']
+            }
+            
+            if state in state_tags:
+                suggestions.extend(state_tags[state])
+            
+            # City-specific tags
+            city_tags = {
+                'mumbai': ['mumbai culture', 'bollywood', 'street food', 'local trains', 'business hub'],
+                'delhi': ['delhi culture', 'historical monuments', 'street food', 'political hub', 'metro culture'],
+                'bangalore': ['bangalore culture', 'it industry', 'pub culture', 'startup ecosystem', 'gardens'],
+                'hyderabad': ['hyderabad culture', 'biryani', 'tech industry', 'nizami heritage', 'pearls'],
+                'chennai': ['chennai culture', 'classical music', 'filter coffee', 'south indian culture', 'marina beach'],
+                'kolkata': ['kolkata culture', 'adda culture', 'literature', 'fish curry', 'cultural capital'],
+                'pune': ['pune culture', 'education hub', 'it industry', 'youth culture', 'pleasant weather'],
+                'ahmedabad': ['ahmedabad culture', 'business hub', 'textile industry', 'garba', 'heritage'],
+                'jaipur': ['jaipur culture', 'pink city', 'royal heritage', 'handicrafts', 'tourism'],
+                'lucknow': ['lucknow culture', 'nawabi heritage', 'kebabs', 'chikan work', 'tehzeeb'],
+                'kochi': ['kochi culture', 'spices', 'backwaters', 'seafood', 'kerala heritage'],
+                'chandigarh': ['chandigarh culture', 'planned city', 'rock garden', 'punjabi culture', 'clean city'],
+                'bhubaneswar': ['bhubaneswar culture', 'temple city', 'odissi dance', 'classical arts', 'planned city'],
+                'guwahati': ['guwahati culture', 'tea culture', 'silk', 'assamese heritage', 'northeast gateway'],
+                'thiruvananthapuram': ['trivandrum culture', 'kerala heritage', 'beaches', 'ayurveda', 'government hub'],
+                'indore': ['indore culture', 'street food', 'business hub', 'clean city', 'commercial center'],
+                'nagpur': ['nagpur culture', 'oranges', 'central location', 'marathi culture', 'tiger reserves'],
+                'patna': ['patna culture', 'bihar heritage', 'ganga river', 'ancient culture', 'educational hub'],
+                'bhopal': ['bhopal culture', 'lake city', 'mp heritage', 'cultural mix', 'historical sites'],
+                'visakhapatnam': ['vizag culture', 'beaches', 'port city', 'steel industry', 'coastal life'],
+                'agra': ['agra culture', 'taj mahal', 'mughal heritage', 'marble work', 'historical monuments'],
+                'nashik': ['nashik culture', 'wine culture', 'religious tourism', 'marathi heritage', 'pilgrimage'],
+                'varanasi': ['varanasi culture', 'spiritual capital', 'ghats', 'classical music', 'ancient culture'],
+                'srinagar': ['srinagar culture', 'dal lake', 'kashmiri heritage', 'handicrafts', 'valley culture'],
+                'amritsar': ['amritsar culture', 'golden temple', 'sikh heritage', 'punjabi culture', 'religious tourism']
+            }
+            
+            if city in city_tags:
+                suggestions.extend(city_tags[city])
+        
+        # Remove duplicates and return
+        return list(set(suggestions))
+
+    def get_enhanced_tag_suggestions(self, user_tags, conversation_history=None, language_preferences=None, location_preferences=None):
+        """Get comprehensive tag suggestions including location-based ones"""
+        all_suggestions = []
+        
+        # Get AI-generated suggestions
+        if conversation_history:
+            ai_suggestions = self.generate_dynamic_tag_suggestions(
+                user_tags, conversation_history, language_preferences, location_preferences
+            )
+            all_suggestions.extend(ai_suggestions)
+        
+        # Get location-based suggestions
+        if location_preferences:
+            location_suggestions = self.get_location_based_tag_suggestions(location_preferences)
+            all_suggestions.extend(location_suggestions)
+        
+        # Get category-based suggestions
+        category_suggestions = self.generate_category_suggestions(user_tags)
+        all_suggestions.extend(category_suggestions)
+        
+        # Get synonym suggestions
+        synonym_suggestions = self.generate_synonym_suggestions(user_tags)
+        all_suggestions.extend(synonym_suggestions)
+        
+        # Get related concept suggestions
+        related_suggestions = self.generate_related_concept_suggestions(user_tags)
+        all_suggestions.extend(related_suggestions)
+        
+        # Remove duplicates and existing tags
+        unique_suggestions = []
+        seen = set(user_tags)
+        
+        for suggestion in all_suggestions:
+            if suggestion not in seen:
+                unique_suggestions.append(suggestion)
+                seen.add(suggestion)
+        
+        return unique_suggestions[:20]  # Return top 20 unique suggestions
 
     def get_popular_tags(self, db, limit=25):
         """Get most popular tags across all users with diverse interests"""

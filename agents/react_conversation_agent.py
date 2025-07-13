@@ -185,6 +185,28 @@ REACT AI PATTERN:
                 return f"Error learning from response: {str(e)}"
         
         @tool
+        def search_current_information(query: str) -> str:
+            """Search for current information using web search."""
+            try:
+                # Check if query needs current information
+                current_keywords = ['current', 'latest', 'recent', 'now', 'today', '2024', '2025', 'news', 'trending']
+                needs_web_search = any(keyword in query.lower() for keyword in current_keywords)
+                
+                if needs_web_search:
+                    search_info = f"Searching for current information about: {query}\n"
+                    try:
+                        web_results = self._search_web_reactive(query, "User is asking about current information")
+                        search_info += f"Web search results: {web_results[:500]}...\n"
+                    except Exception as e:
+                        search_info += f"Web search unavailable: {str(e)}\n"
+                    
+                    return search_info
+                else:
+                    return f"No current information search needed for: {query}"
+            except Exception as e:
+                return f"Error searching current information: {str(e)}"
+        
+        @tool
         def reflect_on_conversation_quality(user_id: str, response: str) -> str:
             """Reflect on the quality of the generated response."""
             try:
@@ -217,6 +239,7 @@ REACT AI PATTERN:
             generate_cultural_response,
             generate_followup_question,
             learn_from_response,
+            search_current_information,
             reflect_on_conversation_quality
         ])
         

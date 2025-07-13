@@ -20,6 +20,7 @@ from agents.react_session_agent import ReactSessionAgent
 from agents.react_user_profile_agent import ReactUserProfileAgent
 from agents.react_language_agent import ReactLanguageAgent
 from agents.react_group_chat_agent import ReactGroupChatAgent
+from agents.react_rag_nearby_agent import ReactRAGNearbyUsersAgent
 from db import DB as DatabaseInterface
 
 
@@ -58,6 +59,7 @@ class ReactMultiAgentChatbot:
         self.agents['UserProfileAgent'] = ReactUserProfileAgent(self.db)
         self.agents['LanguageAgent'] = ReactLanguageAgent(self.db)
         self.agents['GroupChatAgent'] = ReactGroupChatAgent(self.db)
+        self.agents['RAGNearbyUsersAgent'] = ReactRAGNearbyUsersAgent(self.db)
         
         # Register agents with coordinator
         for agent in self.agents.values():
@@ -293,32 +295,177 @@ class ReactMultiAgentChatbot:
             Similar users with reasoning
         """
         try:
-            # Get user tags
+            # Check if user has tags first
             user_tags = []
             if self.db:
-                user_tags = [tag['tag'] for tag in self.db.get_user_tags(user_id)]
+                user_tags = self.db.get_user_tags(user_id)
             
-            # Use React AI pattern for user matching
-            react_request = {
-                'type': 'find_similar_users',
-                'user_id': user_id,
-                'user_tags': user_tags,
-                'limit': limit
+            # If user has tags, use traditional tag-based similarity
+            if user_tags:
+                react_request = {
+                    'type': 'find_similar_users',
+                    'user_id': user_id,
+                    'user_tags': user_tags,
+                    'limit': limit
+                }
+                
+                result = self.coordinator.route_request(react_request)
+                
+                if result.get('success'):
+                    result['framework'] = 'React AI Pattern'
+                    result['matching_method'] = 'Tag-based Similarity'
+                    return result
+            
+            # If no tags or tag-based search failed, use semantic search via RAG agent
+            if self.db:
+                # Check if user has embeddings stored
+                user_embedding = self.db.get_user_embedding(user_id)
+                
+                if user_embedding:
+                    # Use semantic search with user's profile text as query
+                    react_request = {
+                        'type': 'semantic_search_users',
+                        'user_id': user_id,
+                        'query': user_embedding.get('profile_text', ''),
+                        'max_results': limit
+                    }
+                    
+                    result = self.coordinator.route_request(react_request)
+                    
+                    if result.get('success'):
+                        # Convert semantic results to similar users format
+                        semantic_results = result.get('results', [])
+                        similar_users = []
+                        
+                        for user in semantic_results:
+                            similar_users.append({
+                                'user_id': user['user_id'],
+                                'name': user['name'],
+                                'similarity_score': user['semantic_score'],
+                                'common_tags': user.get('tags', []),
+                                'location_info': user.get('location', {}),
+                                'matching_method': 'semantic_similarity'
+                            })
+                        
+                        return {
+                            'success': True,
+                            'similar_users': similar_users,
+                            'framework': 'React AI Pattern + RAG',
+                            'matching_method': 'Semantic Similarity',
+                            'total_found': len(similar_users)
+                        }
+                
+                # If no embeddings, try to create user profile first
+                profile_text = self._generate_user_profile_text(user_id)
+                if profile_text:
+                    # Vectorize the user profile
+                    vectorize_request = {
+                        'type': 'vectorize_user_profile',
+                        'user_id': user_id
+                    }
+                    
+                    vectorize_result = self.coordinator.route_request(vectorize_request)
+                    
+                    if vectorize_result.get('success'):
+                        # Now try semantic search again
+                        react_request = {
+                            'type': 'semantic_search_users',
+                            'user_id': user_id,
+                            'query': profile_text,
+                            'max_results': limit
+                        }
+                        
+                        result = self.coordinator.route_request(react_request)
+                        
+                        if result.get('success'):
+                            # Convert semantic results to similar users format
+                            semantic_results = result.get('results', [])
+                            similar_users = []
+                            
+                            for user in semantic_results:
+                                similar_users.append({
+                                    'user_id': user['user_id'],
+                                    'name': user['name'],
+                                    'similarity_score': user['semantic_score'],
+                                    'common_tags': user.get('tags', []),
+                                    'location_info': user.get('location', {}),
+                                    'matching_method': 'semantic_similarity'
+                                })
+                            
+                            return {
+                                'success': True,
+                                'similar_users': similar_users,
+                                'framework': 'React AI Pattern + RAG',
+                                'matching_method': 'Semantic Similarity (New Profile)',
+                                'total_found': len(similar_users)
+                            }
+            
+            # Final fallback - return empty but successful result
+            return {
+                'success': True,
+                'similar_users': [],
+                'framework': 'React AI Pattern',
+                'matching_method': 'No matching method available',
+                'message': 'No similar users found yet. Keep chatting to discover connections!'
             }
-            
-            result = self.coordinator.route_request(react_request)
-            
-            if result.get('success'):
-                result['framework'] = 'React AI Pattern'
-                result['matching_method'] = 'React AI Reasoning'
-            
-            return result
             
         except Exception as e:
             return {
                 'success': False,
-                'error': f'Error finding similar users: {str(e)}'
+                'error': f'Error finding similar users: {str(e)}',
+                'similar_users': []
             }
+    
+    def _generate_user_profile_text(self, user_id: str) -> str:
+        """Generate profile text for a user based on conversation history and profile data."""
+        try:
+            if not self.db:
+                return ""
+            
+            # Get user profile
+            user_profile = self.db.get_user_profile(user_id)
+            if not user_profile:
+                return ""
+            
+            # Build profile text
+            profile_parts = []
+            
+            # Add user name
+            profile_parts.append(f"User: {user_profile.get('name', '')}")
+            
+            # Add location information
+            location = user_profile.get('location', {})
+            if location.get('city'):
+                location_text = f"Location: {location['city']}"
+                if location.get('state'):
+                    location_text += f", {location['state']}"
+                if location.get('country'):
+                    location_text += f", {location['country']}"
+                profile_parts.append(location_text)
+            
+            # Add language preferences
+            if user_profile.get('native_language'):
+                profile_parts.append(f"Native Language: {user_profile['native_language']}")
+            
+            if user_profile.get('preferred_languages'):
+                profile_parts.append(f"Preferred Languages: {', '.join(user_profile['preferred_languages'])}")
+            
+            # Add conversation history (recent messages)
+            conversations = self.db.get_user_conversations(user_id, limit=10)
+            if conversations:
+                recent_messages = []
+                for conv in conversations[-5:]:  # Get last 5 messages
+                    if conv.get('role') == 'user':
+                        recent_messages.append(conv.get('message', ''))
+                
+                if recent_messages:
+                    profile_parts.append(f"Recent interests: {' '.join(recent_messages)}")
+            
+            return " | ".join(profile_parts)
+            
+        except Exception as e:
+            print(f"Error generating profile text for user {user_id}: {str(e)}")
+            return ""
     
     def create_group_chat(self, topic_name: str, user_ids: List[str],
                          created_by: str) -> Dict[str, Any]:
@@ -787,6 +934,11 @@ class ReactMultiAgentChatbot:
                 result['framework'] = 'React AI Pattern'
                 result['reasoning_steps'] = len(result.get('reasoning_chain', []))
                 result['processing_timestamp'] = datetime.now().isoformat()
+                
+                # Automatic tag analysis every 5 turns
+                turns = self.get_conversation_turns()
+                if turns % 5 == 0:
+                    self._analyze_and_add_tags()
             
             return result
             
@@ -795,6 +947,94 @@ class ReactMultiAgentChatbot:
                 'success': False,
                 'error': f'Error processing message: {str(e)}'
             }
+    
+    def _analyze_and_add_tags(self):
+        """Analyze conversation and add inferred tags"""
+        try:
+            if not hasattr(self, 'user_id'):
+                return
+            
+            # Get conversation for analysis
+            conversation = self.get_conversation()
+            conversation_text = " ".join([msg for role, msg in conversation])
+            
+            # Analyze conversation for tags
+            analysis_result = self.analyze_conversation_for_tags(
+                user_id=self.user_id,
+                conversation_text=conversation_text,
+                language_preferences=self.get_language_preferences()
+            )
+            
+            if analysis_result.get('success'):
+                # Extract suggested tags from analysis
+                inferred_tags = analysis_result.get('inferred_tags', [])
+                
+                # Add new tags that aren't already present
+                current_tags = set(self.get_user_tags())
+                for tag in inferred_tags:
+                    if tag not in current_tags and self.db:
+                        self.db.add_user_tag(self.user_id, tag, 'inferred')
+                
+                return inferred_tags
+            
+        except Exception as e:
+            print(f"Error analyzing tags: {e}")
+            return []
+    
+    def get_conversation(self) -> List[tuple]:
+        """
+        Get conversation history.
+        
+        Returns:
+            List of (role, message) tuples
+        """
+        try:
+            if self.db and hasattr(self, 'user_id'):
+                return self.db.get_user_conversation(self.user_id)
+            return []
+        except Exception as e:
+            return []
+    
+    def get_conversation_turns(self) -> int:
+        """
+        Get number of conversation turns.
+        
+        Returns:
+            Number of turns
+        """
+        try:
+            conversation = self.get_conversation()
+            return len(conversation)
+        except Exception as e:
+            return 0
+    
+    def get_last_question(self) -> str:
+        """
+        Get the last follow-up question.
+        
+        Returns:
+            Last question or None
+        """
+        try:
+            # This would need to be implemented in the conversation agent
+            # For now, return None
+            return None
+        except Exception as e:
+            return None
+    
+    def get_question_stats(self) -> Dict[str, int]:
+        """
+        Get question statistics.
+        
+        Returns:
+            Dictionary with question counts
+        """
+        try:
+            if self.db and hasattr(self, 'user_id'):
+                return self.db.get_question_stats(self.user_id)
+            return {'accepted_count': 0, 'rejected_count': 0, 'total_questions': 0}
+        except Exception as e:
+            return {'accepted_count': 0, 'rejected_count': 0, 'total_questions': 0}
 
     def get_accepted_questions(self) -> List[str]:
         """
@@ -834,7 +1074,8 @@ class ReactMultiAgentChatbot:
         try:
             if self.db and hasattr(self, 'user_id'):
                 tags = self.db.get_user_tags(self.user_id)
-                return [tag['tag'] for tag in tags]
+                # Database returns list of strings, not dictionaries
+                return tags if isinstance(tags, list) else []
             return []
         except Exception as e:
             return []
@@ -853,19 +1094,51 @@ class ReactMultiAgentChatbot:
             if not hasattr(self, 'user_id'):
                 return False
             
-            # Use React AI pattern for tag addition
-            react_request = {
-                'type': 'create_profile',
-                'user_id': self.user_id,
-                'tags': [tag],
-                'language_preferences': self.get_language_preferences()
-            }
+            # Add tag directly to database
+            if self.db:
+                self.db.add_user_tag(self.user_id, tag, 'manual')
+                return True
             
-            result = self.coordinator.route_request(react_request)
-            return result.get('success', False)
+            return False
             
         except Exception as e:
             return False
+    
+    def remove_tag(self, tag: str) -> bool:
+        """
+        Remove a tag from user profile.
+        
+        Args:
+            tag: Tag to remove
+            
+        Returns:
+            Success status
+        """
+        try:
+            if not hasattr(self, 'user_id'):
+                return False
+            
+            # Remove tag directly from database
+            if self.db:
+                self.db.remove_user_tag(self.user_id, tag)
+                return True
+            
+            return False
+            
+        except Exception as e:
+            return False
+    
+    def add_manual_tag(self, tag: str) -> bool:
+        """
+        Add a manual tag (alias for add_user_tag).
+        
+        Args:
+            tag: Tag to add
+            
+        Returns:
+            Success status
+        """
+        return self.add_user_tag(tag)
 
     def update_language_preferences(self, native_language: str = None,
                                   preferred_languages: List[str] = None,
@@ -896,9 +1169,9 @@ class ReactMultiAgentChatbot:
         except Exception as e:
             return False
 
-    def find_similar_users(self, limit: int = 5) -> List[Dict[str, Any]]:
+    def find_similar_users_for_current_user(self, limit: int = 5) -> List[Dict[str, Any]]:
         """
-        Find similar users.
+        Find similar users for the current session user.
         
         Args:
             limit: Maximum number of users to return
@@ -910,14 +1183,8 @@ class ReactMultiAgentChatbot:
             if not hasattr(self, 'user_id'):
                 return []
             
-            # Use React AI pattern for user matching
-            react_request = {
-                'type': 'find_similar_users',
-                'user_id': self.user_id,
-                'limit': limit
-            }
-            
-            result = self.coordinator.route_request(react_request)
+            # Use the main find_similar_users method with current user_id
+            result = self.find_similar_users(self.user_id, limit)
             
             if result.get('success'):
                 return result.get('similar_users', [])
@@ -1044,4 +1311,477 @@ class ReactMultiAgentChatbot:
             return {
                 'success': False,
                 'error': f'Error sending group message: {str(e)}'
+            }
+
+    # Location-related methods for session-based interface
+    def update_location_preferences(self, city: str = None, state: str = None, 
+                                  country: str = None, timezone: str = None, 
+                                  coordinates: Dict[str, float] = None, 
+                                  privacy_level: str = 'city_only') -> bool:
+        """
+        Update current user's location preferences.
+        
+        Args:
+            city: User's city
+            state: User's state
+            country: User's country
+            timezone: User's timezone
+            coordinates: GPS coordinates (lat, lng)
+            privacy_level: Privacy level for location sharing
+            
+        Returns:
+            Success status
+        """
+        try:
+            if not hasattr(self, 'user_id') or not self.db:
+                return False
+            
+            self.db.update_location_preferences(
+                self.user_id, city, state, country, timezone, 
+                coordinates, privacy_level
+            )
+            return True
+            
+        except Exception as e:
+            return False
+
+    def get_location_preferences(self) -> Dict[str, Any]:
+        """
+        Get current user's location preferences.
+        
+        Returns:
+            Location preferences
+        """
+        try:
+            if not hasattr(self, 'user_id') or not self.db:
+                return {}
+            
+            return self.db.get_location_preferences(self.user_id)
+            
+        except Exception as e:
+            return {}
+
+    def find_nearby_users(self, radius_km: float = 50, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Find nearby users for current user.
+        
+        Args:
+            radius_km: Search radius in kilometers
+            limit: Maximum number of users to return
+            
+        Returns:
+            List of nearby users
+        """
+        try:
+            if not hasattr(self, 'user_id') or not self.db:
+                return []
+            
+            return self.db.find_nearby_users(self.user_id, radius_km, limit)
+            
+        except Exception as e:
+            return []
+
+    def find_users_in_city(self, city: str, state: str = None, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Find users in a specific city.
+        
+        Args:
+            city: Target city
+            state: Target state (optional)
+            limit: Maximum number of users to return
+            
+        Returns:
+            List of users in the city
+        """
+        try:
+            if not hasattr(self, 'user_id') or not self.db:
+                return []
+            
+            return self.db.find_users_in_city(self.user_id, city, state, limit)
+            
+        except Exception as e:
+            return []
+
+    def find_similar_users_with_location(self, search_type: str = 'interests', 
+                                        location_filter: Dict[str, Any] = None, 
+                                        limit: int = 5) -> List[Dict[str, Any]]:
+        """
+        Find similar users with location filtering.
+        
+        Args:
+            search_type: Type of search ('interests', 'location', 'both')
+            location_filter: Location filter parameters
+            limit: Maximum number of users to return
+            
+        Returns:
+            List of similar users with location context
+        """
+        try:
+            if not hasattr(self, 'user_id') or not self.db:
+                return []
+            
+            if search_type == 'location':
+                if location_filter and location_filter.get('type') == 'nearby':
+                    return self.find_nearby_users(
+                        location_filter.get('radius_km', 50), limit
+                    )
+                elif location_filter and location_filter.get('type') == 'city':
+                    return self.find_users_in_city(
+                        location_filter.get('city', ''),
+                        location_filter.get('state'),
+                        limit
+                    )
+            
+            # For interests or both, use enhanced similarity matching
+            return self.db.find_similar_users(self.user_id, limit)
+            
+        except Exception as e:
+            return [] 
+
+    # Location-related methods
+    def update_location_preferences(self, user_id: str, city: str = None, state: str = None, 
+                                  country: str = None, timezone: str = None, 
+                                  coordinates: Dict[str, float] = None, 
+                                  privacy_level: str = 'city_only') -> Dict[str, Any]:
+        """
+        Update user location preferences using React AI pattern.
+        
+        Args:
+            user_id: User identifier
+            city: User's city
+            state: User's state
+            country: User's country
+            timezone: User's timezone
+            coordinates: GPS coordinates (lat, lng)
+            privacy_level: Privacy level for location sharing
+            
+        Returns:
+            Update result
+        """
+        try:
+            # Use React AI pattern for location update
+            react_request = {
+                'type': 'update_location',
+                'user_id': user_id,
+                'city': city,
+                'state': state,
+                'country': country,
+                'timezone': timezone,
+                'coordinates': coordinates,
+                'privacy_level': privacy_level
+            }
+            
+            result = self.coordinator.route_request(react_request)
+            
+            if result.get('success'):
+                result['framework'] = 'React AI Pattern'
+                result['location_updated'] = True
+            
+            return result
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Error updating location: {str(e)}'
+            }
+
+    def get_location_preferences(self, user_id: str) -> Dict[str, Any]:
+        """
+        Get user location preferences.
+        
+        Args:
+            user_id: User identifier
+            
+        Returns:
+            Location preferences
+        """
+        try:
+            if self.db:
+                return self.db.get_location_preferences(user_id)
+            return {}
+        except Exception as e:
+            return {}
+
+    def find_nearby_users(self, user_id: str, radius_km: float = 50, 
+                         limit: int = 10) -> Dict[str, Any]:
+        """
+        Find nearby users using React AI pattern.
+        
+        Args:
+            user_id: User identifier
+            radius_km: Search radius in kilometers
+            limit: Maximum number of users to return
+            
+        Returns:
+            List of nearby users
+        """
+        try:
+            # Use React AI pattern for nearby user search
+            react_request = {
+                'type': 'find_nearby_users',
+                'user_id': user_id,
+                'radius_km': radius_km,
+                'limit': limit
+            }
+            
+            result = self.coordinator.route_request(react_request)
+            
+            if result.get('success'):
+                result['framework'] = 'React AI Pattern'
+                result['search_method'] = 'GPS-based proximity'
+            
+            return result
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Error finding nearby users: {str(e)}',
+                'nearby_users': []
+            }
+
+    def find_users_in_city(self, user_id: str, city: str, state: str = None, 
+                          limit: int = 10) -> Dict[str, Any]:
+        """
+        Find users in a specific city using React AI pattern.
+        
+        Args:
+            user_id: User identifier
+            city: Target city
+            state: Target state (optional)
+            limit: Maximum number of users to return
+            
+        Returns:
+            List of users in the city
+        """
+        try:
+            # Use React AI pattern for city-based user search
+            react_request = {
+                'type': 'find_users_in_city',
+                'user_id': user_id,
+                'city': city,
+                'state': state,
+                'limit': limit
+            }
+            
+            result = self.coordinator.route_request(react_request)
+            
+            if result.get('success'):
+                result['framework'] = 'React AI Pattern'
+                result['search_method'] = 'City-based search'
+            
+            return result
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Error finding users in city: {str(e)}',
+                'city_users': []
+            }
+
+    def suggest_tags(self, user_id: str, limit: int = 10) -> Dict[str, Any]:
+        """
+        Get location-aware tag suggestions using React AI pattern.
+        
+        Args:
+            user_id: User identifier
+            limit: Maximum number of suggestions
+            
+        Returns:
+            Tag suggestions with location context
+        """
+        try:
+            # Use React AI pattern for location-aware tag suggestions
+            react_request = {
+                'type': 'suggest_location_tags',
+                'user_id': user_id,
+                'limit': limit
+            }
+            
+            result = self.coordinator.route_request(react_request)
+            
+            if result.get('success'):
+                result['framework'] = 'React AI Pattern'
+                result['suggestion_method'] = 'Location-aware analysis'
+            
+            return result
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Error suggesting tags: {str(e)}',
+                'suggestions': []
+            }
+
+    # Enhanced compatibility methods for location features
+    def find_similar_users_with_location(self, user_id: str, search_type: str = 'interests', 
+                                        location_filter: Dict[str, Any] = None, 
+                                        limit: int = 5) -> Dict[str, Any]:
+        """
+        Find similar users with location filtering using React AI pattern.
+        
+        Args:
+            user_id: User identifier
+            search_type: Type of search ('interests', 'location', 'both')
+            location_filter: Location filter parameters
+            limit: Maximum number of users to return
+            
+        Returns:
+            List of similar users with location context
+        """
+        try:
+            # Use React AI pattern for enhanced user matching
+            react_request = {
+                'type': 'find_similar_users_with_location',
+                'user_id': user_id,
+                'search_type': search_type,
+                'location_filter': location_filter or {},
+                'limit': limit
+            }
+            
+            result = self.coordinator.route_request(react_request)
+            
+            if result.get('success'):
+                result['framework'] = 'React AI Pattern'
+                result['search_method'] = f'{search_type}_based_with_location'
+            
+            return result
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Error finding similar users: {str(e)}',
+                'similar_users': []
+            }
+    
+    def rag_nearby_users_search(self, user_id: str, search_type: str = 'hybrid',
+                               location_radius_km: float = 50, semantic_query: str = '',
+                               max_results: int = 10) -> Dict[str, Any]:
+        """
+        Find nearby users using RAG (Retrieval-Augmented Generation) with vector search.
+        
+        Args:
+            user_id: User identifier
+            search_type: Type of search ('location', 'semantic', 'hybrid')
+            location_radius_km: Search radius in kilometers
+            semantic_query: Semantic search query
+            max_results: Maximum number of results to return
+            
+        Returns:
+            RAG-enhanced nearby users search results
+        """
+        try:
+            # Use React AI pattern for RAG nearby users search
+            react_request = {
+                'type': 'rag_nearby_users',
+                'user_id': user_id,
+                'search_type': search_type,
+                'location_radius_km': location_radius_km,
+                'semantic_query': semantic_query,
+                'max_results': max_results
+            }
+            
+            result = self.coordinator.route_request(react_request)
+            
+            if result.get('success'):
+                result['framework'] = 'React AI + RAG Pattern'
+                result['search_method'] = f'{search_type}_rag_search'
+                result['vector_search_enabled'] = True
+            
+            return result
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Error in RAG nearby users search: {str(e)}',
+                'nearby_users': []
+            }
+    
+    def semantic_search_users(self, user_id: str, query: str, max_results: int = 10) -> Dict[str, Any]:
+        """
+        Search for users using semantic similarity with embeddings.
+        
+        Args:
+            user_id: User identifier
+            query: Semantic search query
+            max_results: Maximum number of results to return
+            
+        Returns:
+            Semantic search results
+        """
+        try:
+            # Use React AI pattern for semantic user search
+            react_request = {
+                'type': 'semantic_search_users',
+                'user_id': user_id,
+                'query': query,
+                'max_results': max_results
+            }
+            
+            result = self.coordinator.route_request(react_request)
+            
+            if result.get('success'):
+                result['framework'] = 'React AI + RAG Pattern'
+                result['search_method'] = 'semantic_similarity'
+                result['vector_search_enabled'] = True
+            
+            return result
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Error in semantic user search: {str(e)}',
+                'users': []
+            }
+    
+    def vectorize_user_profile(self, user_id: str) -> Dict[str, Any]:
+        """
+        Vectorize a user's profile for semantic search.
+        
+        Args:
+            user_id: User identifier
+            
+        Returns:
+            Vectorization result
+        """
+        try:
+            # Use React AI pattern for profile vectorization
+            react_request = {
+                'type': 'vectorize_user_profile',
+                'user_id': user_id
+            }
+            
+            result = self.coordinator.route_request(react_request)
+            
+            if result.get('success'):
+                result['framework'] = 'React AI + RAG Pattern'
+                result['vectorization_enabled'] = True
+            
+            return result
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Error vectorizing user profile: {str(e)}'
+            }
+    
+    def get_rag_statistics(self) -> Dict[str, Any]:
+        """
+        Get RAG system statistics.
+        
+        Returns:
+            RAG system statistics
+        """
+        try:
+            rag_agent = self.agents.get('RAGNearbyUsersAgent')
+            if rag_agent:
+                return rag_agent.get_rag_statistics()
+            else:
+                return {
+                    'error': 'RAG agent not available',
+                    'rag_enabled': False
+                }
+        except Exception as e:
+            return {
+                'error': f'Error getting RAG statistics: {str(e)}',
+                'rag_enabled': False
             } 
