@@ -608,15 +608,45 @@ class DB:
             'is_active': True
         }))
 
-    def add_group_message(self, group_id, user_id, message, message_type="user"):
-        """Add a message to a group chat"""
+    def add_group_message(self, group_id, user_id, message, message_type="user", citations=None):
+        """Add a message to a group chat with optional citations"""
         message_doc = {
             'group_id': group_id,
             'user_id': user_id,
             'message': message,
             'message_type': message_type,  # "user" or "ai"
-            'timestamp': self._get_timestamp()
+            'timestamp': self._get_timestamp(),
+            'citations': [],
+            'citation_links': '',
+            'citation_details': {}
         }
+        
+        # If citations are provided, convert them to dictionaries for storage
+        if citations:
+            from citation_system import CitationDisplayManager
+            display_manager = CitationDisplayManager()
+            
+            # Convert Citation objects to dictionaries
+            citation_dicts = []
+            for citation in citations:
+                if hasattr(citation, 'to_dict'):
+                    citation_dicts.append(citation.to_dict())
+                else:
+                    # Fallback: convert to dict manually
+                    citation_dicts.append({
+                        'id': getattr(citation, 'id', ''),
+                        'type': getattr(citation, 'type', ''),
+                        'source': getattr(citation, 'source', ''),
+                        'content': getattr(citation, 'content', ''),
+                        'relevance_score': getattr(citation, 'relevance_score', 0.0),
+                        'timestamp': getattr(citation, 'timestamp', ''),
+                        'metadata': getattr(citation, 'metadata', {})
+                    })
+            
+            message_doc['citations'] = citation_dicts
+            message_doc['citation_links'] = display_manager.format_citations_for_display(citations)
+            message_doc['citation_details'] = display_manager.create_citation_details(citations)
+        
         self.group_messages_collection.insert_one(message_doc)
 
     def get_group_messages(self, group_id, limit=50):

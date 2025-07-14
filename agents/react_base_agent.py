@@ -12,12 +12,14 @@ import json
 from typing import Dict, Any, List, Optional, TypedDict, Tuple
 from datetime import datetime
 import uuid
+import time
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.tools import tool, BaseTool
 from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from logging_utils import flow_logger, get_react_agent_logger
 
 
 class ReactAgentState(TypedDict):
@@ -433,13 +435,13 @@ REACT AI PATTERN:
 3. ACT: Use execute_action to perform the chosen action
 4. REFLECT: Use reflect_on_actions to learn from your actions
 
-GUIDELINES:
-- Always start by observing the current state
-- Think step-by-step about what action to take
-- Use available tools to accomplish your goals
-- Reflect on your actions to improve future performance
+IMPORTANT GUIDELINES:
+- For simple conversations, you can respond directly without using tools
+- Use tools only when you need to gather information or perform complex actions
+- If the user is greeting you or asking simple questions, respond naturally
 - Be helpful, accurate, and culturally aware
 - Focus on connecting users through shared interests
+- Provide conversational responses that engage the user
 
 AGENT SPECIFIC ROLE: {self._get_agent_system_prompt()}
 """
@@ -463,46 +465,116 @@ AGENT SPECIFIC ROLE: {self._get_agent_system_prompt()}
     
     def react_loop(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Execute the React AI loop: Observe → Think → Act → Observe
+        Execute the React AI pattern loop.
         
         Args:
-            request: Request dictionary with parameters
+            request: Request to process
             
         Returns:
-            Response dictionary with results
+            Response from the React AI loop
         """
+        # Get React agent logger
+        react_logger = get_react_agent_logger(self.agent_name)
+        user_id = request.get('user_id')
+        
+        # Log React loop start
+        react_logger.react_loop_start(request, user_id)
+        
+        # Initialize state
+        state = self._request_to_state(request)
+        iterations = 0
+        max_iterations = 10
+        
         try:
-            self.update_activity()
+            while iterations < max_iterations:
+                iterations += 1
+                
+                # Build agent input
+                agent_input = self._build_agent_input(state)
+                
+                # Log LLM call start
+                flow_logger.llm_call_start(
+                    model="gpt-4",
+                    prompt_length=len(agent_input),
+                    user_id=user_id
+                )
+                
+                # Execute agent
+                start_time = time.time()
+                chat_history = self._get_chat_history(state)
+                result = self.agent_executor.invoke({
+                    "input": agent_input,
+                    "chat_history": chat_history
+                })
+                processing_time = time.time() - start_time
+                
+                # Log LLM call end
+                flow_logger.llm_call_end(
+                    model="gpt-4",
+                    response_length=len(str(result)),
+                    processing_time=processing_time,
+                    user_id=user_id
+                )
+                
+                # Process result
+                processed_result = self._process_react_result(result, state)
+                
+                # Log reasoning steps
+                if 'observations' in processed_result:
+                    for obs in processed_result['observations']:
+                        react_logger.reasoning_step("observation", obs, user_id)
+                
+                if 'thoughts' in processed_result:
+                    for thought in processed_result['thoughts']:
+                        react_logger.reasoning_step("thought", thought, user_id)
+                
+                if 'actions' in processed_result:
+                    for action in processed_result['actions']:
+                        react_logger.tool_call(
+                            tool_name=action.get('tool', 'unknown'),
+                            tool_input=action.get('input', ''),
+                            tool_output=action.get('output', ''),
+                            user_id=user_id
+                        )
+                
+                # Check if we have a final answer
+                if 'final_answer' in processed_result:
+                    final_result = {
+                        'success': True,
+                        'response': processed_result['final_answer'],
+                        'iterations': iterations,
+                        'reasoning_chain': processed_result.get('reasoning_chain', [])
+                    }
+                    
+                    # Log React loop end
+                    react_logger.react_loop_end(final_result, iterations, user_id)
+                    return final_result
+                
+                # Update state for next iteration
+                state.update(processed_result)
             
-            # Initialize state
-            state = self._request_to_state(request)
+            # Max iterations reached
+            final_result = {
+                'success': False,
+                'error': f'Max iterations ({max_iterations}) reached without final answer',
+                'iterations': iterations,
+                'reasoning_chain': state.get('reasoning_chain', [])
+            }
             
-            # Build the input for the agent
-            agent_input = self._build_agent_input(state)
-            
-            # Execute the React AI loop
-            result = self.agent_executor.invoke({
-                "input": agent_input,
-                "chat_history": self._get_chat_history(state)
-            })
-            
-            # Process the result
-            response = self._process_react_result(result, state)
-            
-            # Log activity
-            self.log_activity("Completed React AI loop", {
-                'user_id': state.get('user_id'),
-                'iterations': len(result.get('intermediate_steps', [])),
-                'agent': self.agent_name
-            })
-            
-            return response
+            # Log React loop end with error
+            react_logger.react_loop_end(final_result, iterations, user_id)
+            return final_result
             
         except Exception as e:
-            return {
+            error_result = {
                 'success': False,
-                'error': f'Error in {self.agent_name} React AI loop: {str(e)}'
+                'error': f'Error in React AI loop: {str(e)}',
+                'iterations': iterations
             }
+            
+            # Log React loop end with error
+            react_logger.react_loop_end(error_result, iterations, user_id)
+            return error_result
     
     def _build_agent_input(self, state: ReactAgentState) -> str:
         """
@@ -578,7 +650,15 @@ AGENT SPECIFIC ROLE: {self._get_agent_system_prompt()}
         state['actions'] = [{'tool': step['action'], 'input': step['action_input']} for step in reasoning_chain]
         state['reasoning_chain'] = reasoning_chain
         
-        return {
+        # Check if we have a valid response that can be considered a final answer
+        # A final answer is when the agent executor returns output without errors
+        has_final_answer = (
+            response_text and 
+            response_text != 'I apologize, but I am having trouble responding right now.' and
+            len(response_text.strip()) > 0
+        )
+        
+        processed_result = {
             'success': True,
             'response': response_text,
             'reasoning_chain': reasoning_chain,
@@ -591,6 +671,12 @@ AGENT SPECIFIC ROLE: {self._get_agent_system_prompt()}
                 'max_iterations': self.max_iterations
             }
         }
+        
+        # Add final_answer if we have a valid response
+        if has_final_answer:
+            processed_result['final_answer'] = response_text
+        
+        return processed_result
     
     def _request_to_state(self, request: Dict[str, Any]) -> ReactAgentState:
         """
@@ -748,6 +834,14 @@ class ReactAgentCoordinator:
             Response from the agent
         """
         request_type = request.get('type', '')
+        user_id = request.get('user_id')
+        
+        # Start agent flow logging
+        flow_id = flow_logger.start_agent_flow(
+            flow_type=request_type,
+            request=request,
+            user_id=user_id
+        )
         
         # Map request types to agents
         routing_map = {
@@ -777,18 +871,40 @@ class ReactAgentCoordinator:
         target_agent = routing_map.get(request_type)
         
         if not target_agent:
-            return {
+            error_result = {
                 'success': False,
                 'error': f'Unknown request type: {request_type}',
                 'available_types': list(routing_map.keys())
             }
+            flow_logger.end_agent_flow(
+                flow_type=request_type,
+                final_result=error_result,
+                flow_id=flow_id,
+                user_id=user_id
+            )
+            return error_result
         
         agent = self.get_agent(target_agent)
         if not agent:
-            return {
+            error_result = {
                 'success': False,
                 'error': f'Agent not found: {target_agent}'
             }
+            flow_logger.end_agent_flow(
+                flow_type=request_type,
+                final_result=error_result,
+                flow_id=flow_id,
+                user_id=user_id
+            )
+            return error_result
+        
+        # Log agent input
+        flow_logger.agent_input(
+            agent_name=target_agent,
+            input_data=request,
+            flow_id=flow_id,
+            user_id=user_id
+        )
         
         # Add system reasoning before routing
         system_reasoning = self._generate_system_reasoning(request, target_agent)
@@ -798,6 +914,14 @@ class ReactAgentCoordinator:
         try:
             response = agent.process_request(request)
             
+            # Log agent output
+            flow_logger.agent_output(
+                agent_name=target_agent,
+                output_data=response,
+                flow_id=flow_id,
+                user_id=user_id
+            )
+            
             # Log request
             self.request_history.append({
                 'timestamp': datetime.now().isoformat(),
@@ -806,13 +930,39 @@ class ReactAgentCoordinator:
                 'success': response.get('success', False)
             })
             
+            # End agent flow
+            flow_logger.end_agent_flow(
+                flow_type=request_type,
+                final_result=response,
+                flow_id=flow_id,
+                user_id=user_id
+            )
+            
             return response
             
         except Exception as e:
-            return {
+            error_result = {
                 'success': False,
                 'error': f'Error in {target_agent}: {str(e)}'
             }
+            
+            # Log agent error
+            flow_logger.agent_output(
+                agent_name=target_agent,
+                output_data=error_result,
+                flow_id=flow_id,
+                user_id=user_id
+            )
+            
+            # End agent flow with error
+            flow_logger.end_agent_flow(
+                flow_type=request_type,
+                final_result=error_result,
+                flow_id=flow_id,
+                user_id=user_id
+            )
+            
+            return error_result
     
     def _generate_system_reasoning(self, request: Dict[str, Any], target_agent: str) -> Dict[str, Any]:
         """

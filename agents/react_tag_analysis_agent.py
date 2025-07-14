@@ -410,11 +410,11 @@ REACT AI PATTERN:
                 return f"Error searching trending tags: {str(e)}"
         
         @tool
-        def learn_from_tag_feedback(tag_suggestions: List[str], user_feedback: Dict[str, Any]) -> str:
+        def learn_from_tag_feedback(tag_suggestions: List[str], user_feedback: Dict[str, Any] = None) -> str:
             """Learn from user feedback on tag suggestions."""
             try:
                 suggestions = tag_suggestions
-                feedback = user_feedback
+                feedback = user_feedback or {}
                 
                 learning = f"Learning from tag feedback:\n"
                 learning += f"Suggested tags: {suggestions}\n"

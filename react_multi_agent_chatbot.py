@@ -43,12 +43,21 @@ class ReactMultiAgentChatbot:
         self.coordinator = ReactAgentCoordinator()
         self.agents = {}
         
+        # User context (set by set_user_context)
+        self.user_id = None
+        self.user_name = None
+        
         # Initialize React AI agents
         self._initialize_agents()
         
         print("React AI Multi-Agent Chatbot System initialized")
         print(f"Total agents: {len(self.agents)}")
         print("Framework: React AI Pattern")
+    
+    def set_user_context(self, user_id: str, user_name: str):
+        """Set the current user context for the chatbot."""
+        self.user_id = user_id
+        self.user_name = user_name
     
     def _initialize_agents(self):
         """Initialize all React AI agents."""
@@ -1262,50 +1271,68 @@ class ReactMultiAgentChatbot:
 
     def get_group_messages(self, group_id: str) -> List[Dict[str, Any]]:
         """
-        Get group chat messages.
+        Get group chat messages with citation data.
         
         Args:
             group_id: Group chat ID
             
         Returns:
-            List of messages
+            List of messages with citation information
         """
         try:
-            if self.db:
-                return self.db.get_group_messages(group_id)
-            return []
+            if not hasattr(self, 'user_id'):
+                return []
+            
+            # Use GroupChatManager for citation-enabled message retrieval
+            from group_chat import GroupChatManager
+            group_manager = GroupChatManager(self.db)
+            group_chat = group_manager.get_group_chat(group_id, self.user_id)
+            
+            if not group_chat:
+                return []
+            
+            # Get messages with citation data
+            return group_chat.get_messages()
+            
         except Exception as e:
             return []
 
     def send_group_message(self, group_id: str, message: str) -> Dict[str, Any]:
         """
-        Send a message to a group chat.
+        Send a message to a group chat with citation support.
         
         Args:
             group_id: Group chat ID
             message: Message to send
             
         Returns:
-            Message sending result
+            Message sending result with citation data
         """
         try:
             if not hasattr(self, 'user_id'):
                 return {'success': False, 'error': 'User not set'}
             
-            # Use React AI pattern for group message
-            react_request = {
-                'type': 'send_group_message',
-                'group_id': group_id,
-                'user_id': self.user_id,
-                'message': message
+            # Use GroupChatManager for citation-enabled messaging
+            from group_chat import GroupChatManager
+            group_manager = GroupChatManager(self.db)
+            group_chat = group_manager.get_group_chat(group_id, self.user_id)
+            
+            if not group_chat:
+                return {'success': False, 'error': 'Group chat not found or access denied'}
+            
+            # Send message with citation support
+            ai_response_data = group_chat.send_message(message)
+            
+            return {
+                'success': True,
+                'framework': 'React AI Pattern with Citations',
+                'message_sent': True,
+                'ai_response': ai_response_data.get('response', ''),
+                'citations': ai_response_data.get('citations', []),
+                'citation_links': ai_response_data.get('citation_links', ''),
+                'citation_details': ai_response_data.get('citation_details', {}),
+                'has_citations': ai_response_data.get('has_citations', False)
             }
-            
-            result = self.coordinator.route_request(react_request)
-            
-            if result.get('success'):
-                result['framework'] = 'React AI Pattern'
-            
-            return result
             
         except Exception as e:
             return {

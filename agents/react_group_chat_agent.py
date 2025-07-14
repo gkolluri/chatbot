@@ -14,6 +14,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 from agents.react_base_agent import ReactBaseAgent, ReactAgentState
 from langchain_core.tools import tool
+from citation_system import CitationGenerator, CitationDisplayManager
 
 
 class ReactGroupChatAgent(ReactBaseAgent):
@@ -28,6 +29,10 @@ class ReactGroupChatAgent(ReactBaseAgent):
         """Initialize the React AI group chat agent."""
         super().__init__("ReactGroupChatAgent", db_interface)
         self.active_groups = {}
+        
+        # Initialize citation system
+        self.citation_generator = CitationGenerator(db_interface=db_interface)
+        self.citation_display_manager = CitationDisplayManager()
         
     def get_capabilities(self) -> List[str]:
         """Get list of capabilities this agent provides."""
@@ -74,7 +79,19 @@ REACT AI PATTERN:
         def create_group_chat(topic_name: str, user_ids: str, created_by: str) -> str:
             """Create a new group chat with React AI reasoning."""
             try:
-                user_list = eval(user_ids) if isinstance(user_ids, str) else user_ids
+                # Handle user_ids properly - it should be a list or string representation
+                if isinstance(user_ids, str):
+                    # If it's a string, try to parse it as a list
+                    if user_ids.startswith('[') and user_ids.endswith(']'):
+                        # Remove brackets and split by comma
+                        user_list = [uid.strip().strip("'\"") for uid in user_ids[1:-1].split(',')]
+                    else:
+                        # Single user ID
+                        user_list = [user_ids]
+                elif isinstance(user_ids, list):
+                    user_list = user_ids
+                else:
+                    user_list = [str(user_ids)]
                 
                 # Create group with React AI reasoning
                 group_id = f"group_{datetime.now().strftime('%Y%m%d_%H%M%S')}"

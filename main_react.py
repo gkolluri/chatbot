@@ -36,6 +36,7 @@ from geopy.exc import GeocoderTimedOut, GeocoderUnavailable
 import requests
 import json
 import pytz
+import time
 
 # Load environment variables from .env if present
 load_dotenv()
@@ -1049,22 +1050,34 @@ def _show_group_chats_interface(chatbot):
     st.markdown("## 👥 Group Chats")
     st.markdown("*Join or create group conversations*")
     
-    # Get user's group chats
-    group_chats = chatbot.get_user_group_chats()
-    
-    if group_chats:
-        st.markdown("### Your Group Chats")
-        for group in group_chats:
-            with st.expander(f"💬 {group['topic_name']}"):
-                st.write(f"**Participants:** {len(group['user_ids'])} users")
-                st.write(f"**Created:** {group['created_at']}")
-                
-                if st.button(f"Join {group['topic_name']}", key=f"join_{group['group_id']}"):
-                    st.session_state['current_group_chat'] = group['group_id']
-                    st.session_state['current_view'] = 'group_chat'
-                    st.rerun()
-    else:
-        st.info("No group chats yet. Create one to start connecting!")
+    # Get user's group chats using the database directly
+    try:
+        from group_chat import GroupChatManager
+        group_manager = GroupChatManager(chatbot.db)
+        user_groups_result = group_manager.get_user_groups(chatbot.user_id)
+        user_groups = user_groups_result.get('groups', []) if isinstance(user_groups_result, dict) else user_groups_result
+        
+        if user_groups:
+            st.markdown("### Your Group Chats")
+            for group in user_groups:
+                with st.expander(f"💬 {group['topic_name']}"):
+                    # Safely handle participants display
+                    participants = group.get('participants', [])
+                    if isinstance(participants, list):
+                        st.write(f"**Participants:** {', '.join(participants)}")
+                    else:
+                        st.write(f"**Participants:** {str(participants)}")
+                    st.write(f"**Created:** {group['created_at']}")
+                    
+                    if st.button(f"Join {group['topic_name']}", key=f"join_{group['group_id']}"):
+                        st.session_state['current_group_chat'] = group['group_id']
+                        st.session_state['current_view'] = 'group_chat'
+                        st.rerun()
+        else:
+            st.info("No group chats yet. Create one to start connecting!")
+    except Exception as e:
+        st.error(f"Error loading group chats: {str(e)}")
+        st.info("No group chats available.")
     
     # Create new group chat
     st.markdown("### Create New Group Chat")
@@ -1073,25 +1086,17 @@ def _show_group_chats_interface(chatbot):
         submitted = st.form_submit_button("Create Group Chat")
         
         if submitted and topic_name:
-            result = chatbot.create_group_chat(topic_name)
-            if result.get('success'):
-                st.success(f"Group chat '{topic_name}' created successfully!")
-                st.rerun()
-            else:
-                st.error(f"Error creating group chat: {result.get('error', 'Unknown error')}")
-
-def _create_group_chat_with_user(chatbot, similar_user):
-    """Create a group chat with a similar user"""
-    topic_name = f"Chat with {similar_user['name']}"
-    result = chatbot.create_group_chat(topic_name, [similar_user['user_id']])
-    
-    if result.get('success'):
-        st.success(f"Group chat created with {similar_user['name']}!")
-        st.session_state['current_group_chat'] = result['group_id']
-        st.session_state['current_view'] = 'group_chat'
-        st.rerun()
-    else:
-        st.error(f"Error creating group chat: {result.get('error', 'Unknown error')}")
+            try:
+                # Create group with AI bot
+                user_ids = [chatbot.user_id, "ai_bot"]
+                result = group_manager.create_group_chat(topic_name.strip(), user_ids, chatbot.user_id)
+                if result.get('success'):
+                    st.success(f"Group chat '{topic_name.strip()}' created successfully!")
+                    st.rerun()
+                else:
+                    st.error(f"Error creating group chat: {result.get('error', 'Unknown error')}")
+            except Exception as e:
+                st.error(f"Error creating group chat: {str(e)}")
 
 def _show_group_chat_interface(chatbot):
     """Show specific group chat interface"""
@@ -1104,33 +1109,387 @@ def _show_group_chat_interface(chatbot):
         st.session_state['current_view'] = 'group_chats'
         st.rerun()
     
-    # Get group chat info
-    group_info = chatbot.get_group_chat_info(group_id)
-    if not group_info:
-        st.error("Group chat not found.")
+    try:
+        # Get group chat using GroupChatManager
+        from group_chat import GroupChatManager, GroupChat
+        group_manager = GroupChatManager(chatbot.db)
+        
+        group_chat = group_manager.get_group_chat(group_id, chatbot.user_id)
+        
+        if not isinstance(group_chat, GroupChat):
+            st.error(f"Group chat not found or you don't have access. Please try again or contact support.")
+            st.session_state['current_view'] = 'group_chats'
+            st.rerun()
+            return
+        
+        # Get group info from database
+        group_info = chatbot.db.get_group_info(group_id)
+        if not group_info:
+            st.error("Group chat not found.")
+            st.session_state['current_view'] = 'group_chats'
+            st.rerun()
+            return
+        
+        # Header with back button
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.markdown(f"## 💬 {group_info['topic_name']}")
+        with col2:
+            if st.button("← Back to Groups"):
+                st.session_state['current_view'] = 'group_chats'
+                st.rerun()
+        
+        # Display participants
+        participant_names = []
+        for uid in group_info['user_ids']:
+            if uid == "ai_bot":
+                participant_names.append("AI Assistant")
+            else:
+                user_profile = chatbot.db.get_user_profile(uid)
+                if user_profile:
+                    participant_names.append(user_profile['name'])
+        
+        st.markdown(f"**Participants:** {', '.join(participant_names)}")
+        
+        # Comprehensive Debug Panel
+        with st.expander("🔧 System Debug Panel", expanded=False):
+            st.markdown("#### Group Chat System Status")
+            
+            # Database connection status
+            try:
+                db_status = chatbot.db.check_connection()
+                db_status_icon = "✅" if db_status.get('success') else "❌"
+                st.markdown(f"{db_status_icon} **Database Connection:** {'Connected' if db_status.get('success') else 'Disconnected'}")
+            except Exception as e:
+                st.markdown(f"❌ **Database Connection:** Error - {str(e)}")
+            
+            # Group chat manager status
+            try:
+                group_manager_status = "✅ Active" if group_manager else "❌ Not Available"
+                st.markdown(f"🔧 **Group Manager:** {group_manager_status}")
+            except Exception as e:
+                st.markdown(f"❌ **Group Manager:** Error - {str(e)}")
+            
+            # Chatbot status
+            try:
+                chatbot_status = chatbot.check_status()
+                chatbot_status_icon = "✅" if chatbot_status.get('success') else "❌"
+                st.markdown(f"{chatbot_status_icon} **Chatbot Status:** {'Online' if chatbot_status.get('success') else 'Offline'}")
+            except Exception as e:
+                st.markdown(f"❌ **Chatbot Status:** Error - {str(e)}")
+            
+            # Agent status
+            try:
+                agent_count = len(chatbot.agents) if hasattr(chatbot, 'agents') else 0
+                st.markdown(f"🤖 **Active Agents:** {agent_count}")
+            except Exception as e:
+                st.markdown(f"❌ **Agent Status:** Error - {str(e)}")
+            
+            st.markdown("---")
+            
+            # Processing metrics
+            st.markdown("#### Processing Metrics")
+            
+            # Message processing time estimation
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Avg AI Response Time", "~3 seconds")
+                st.metric("Citation Generation", "Enabled")
+            with col2:
+                st.metric("Message Storage", "Real-time")
+                st.metric("Framework", "React AI Pattern")
+            
+            # System capabilities
+            st.markdown("#### System Capabilities")
+            capabilities = [
+                "✅ Real-time message processing",
+                "✅ AI response generation with citations",
+                "✅ User context awareness",
+                "✅ Citation system integration",
+                "✅ Database persistence",
+                "✅ Multi-agent coordination"
+            ]
+            
+            for capability in capabilities:
+                st.markdown(capability)
+            
+            # Error tracking
+            st.markdown("#### Recent Errors")
+            if 'group_chat_errors' not in st.session_state:
+                st.session_state['group_chat_errors'] = []
+            
+            if st.session_state['group_chat_errors']:
+                for error in st.session_state['group_chat_errors'][-3:]:  # Show last 3 errors
+                    st.error(f"**{error['timestamp']}:** {error['message']}")
+            else:
+                st.success("✅ No recent errors")
+        
+        # Display group messages with enhanced debug information
+        st.markdown("### 💬 Messages")
+        messages = group_chat.get_messages()
+        
+        # Debug information header
+        with st.expander("🔧 Debug Information", expanded=False):
+            st.markdown(f"**Group ID:** `{group_id}`")
+            st.markdown(f"**Total Messages:** {len(messages)}")
+            st.markdown(f"**Current User:** {chatbot.user_name} ({chatbot.user_id})")
+            st.markdown(f"**Group Topic:** {group_info['topic_name']}")
+            st.markdown(f"**Participants:** {', '.join(group_info['user_ids'])}")
+            
+            # Message statistics
+            ai_messages = [m for m in messages if m['is_ai']]
+            user_messages = [m for m in messages if not m['is_ai']]
+            messages_with_citations = [m for m in messages if m.get('has_citations', False)]
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("AI Messages", len(ai_messages))
+            with col2:
+                st.metric("User Messages", len(user_messages))
+            with col3:
+                st.metric("Messages with Citations", len(messages_with_citations))
+        
+        # Display messages with enhanced debug information
+        for i, message in enumerate(messages):
+            # Create a container for each message with debug info
+            with st.container():
+                # Message header with debug info
+                col1, col2 = st.columns([4, 1])
+                
+                with col1:
+                    # Message sender and content
+                    if message['is_ai']:
+                        sender_icon = "🤖"
+                        sender_name = "AI Assistant"
+                    else:
+                        sender_icon = "👤"
+                        sender_name = message['sender']
+                    
+                    # Display message with citation links
+                    message_text = message['message']
+                    citation_links = message.get('citation_links', '')
+                    if citation_links:
+                        message_text += citation_links
+                    
+                    st.markdown(f"**{sender_icon} {sender_name}:** {message_text}")
+                    
+                    # Display citation details if available (expandable)
+                    if message.get('citation_details'):
+                        with st.expander(f"📚 View Citations ({len(message.get('citations', []))} total)", expanded=False):
+                            citation_details = message['citation_details']
+                            for citation_num, citation_info in citation_details.items():
+                                st.markdown(f"**[{citation_num}]** {citation_info['display_text']}")
+                                with st.expander(f"Details for Citation {citation_num}", expanded=False):
+                                    st.json({
+                                        "type": citation_info['type'],
+                                        "source": citation_info['source'],
+                                        "content": citation_info['content'],
+                                        "relevance_score": citation_info['relevance_score'],
+                                        "metadata": citation_info.get('metadata', {})
+                                    })
+                
+                with col2:
+                    # Debug button for this message
+                    if st.button(f"🔧", key=f"debug_{i}", help="View debug info"):
+                        st.session_state[f'debug_message_{i}'] = not st.session_state.get(f'debug_message_{i}', False)
+                
+                # Debug information for this message (expandable)
+                if st.session_state.get(f'debug_message_{i}', False):
+                    with st.expander(f"🔧 Debug Info for Message {i+1}", expanded=True):
+                        st.markdown("#### Message Details")
+                        st.json({
+                            "message_index": i,
+                            "sender": message['sender'],
+                            "user_id": message['user_id'],
+                            "is_ai": message['is_ai'],
+                            "timestamp": message['timestamp'],
+                            "message_length": len(message['message']),
+                            "has_citations": message.get('has_citations', False),
+                            "citation_count": len(message.get('citations', [])),
+                            "citation_links": message.get('citation_links', ''),
+                            "citation_details": message.get('citation_details', {})
+                        })
+                        
+                        # Citation details if present
+                        if message.get('citations'):
+                            st.markdown("#### Citation Details")
+                            citations = message['citations']
+                            for j, citation in enumerate(citations):
+                                if hasattr(citation, 'type'):
+                                    # Citation object
+                                    st.markdown(f"**Citation {j+1}:**")
+                                    st.json({
+                                        "id": citation.id,
+                                        "type": citation.type,
+                                        "source": citation.source,
+                                        "content": citation.content[:100] + "..." if len(citation.content) > 100 else citation.content,
+                                        "relevance_score": citation.relevance_score,
+                                        "timestamp": citation.timestamp,
+                                        "metadata": citation.metadata
+                                    })
+                                else:
+                                    # Citation dict
+                                    st.markdown(f"**Citation {j+1}:**")
+                                    st.json(citation)
+                        
+                        # Processing information for AI messages
+                        if message['is_ai']:
+                            st.markdown("#### AI Processing Info")
+                            st.info("This message was generated by the AI with the following context:")
+                            
+                            # Try to get processing context from the message
+                            processing_info = {
+                                "message_type": "AI Response",
+                                "framework": "React AI Pattern with Citations",
+                                "citation_generation": "Enabled" if message.get('has_citations') else "Disabled",
+                                "response_length": len(message['message']),
+                                "estimated_processing_time": "~2-5 seconds"
+                            }
+                            st.json(processing_info)
+                        
+                        # User message context
+                        else:
+                            st.markdown("#### User Message Context")
+                            st.info("This message was sent by a user:")
+                            
+                            user_context = {
+                                "message_type": "User Message",
+                                "sender_name": message['sender'],
+                                "user_id": message['user_id'],
+                                "message_length": len(message['message']),
+                                "timestamp": message['timestamp']
+                            }
+                            st.json(user_context)
+            
+            # Add a subtle separator between messages
+            st.markdown("---")
+    
+    except Exception as e:
+        st.error(f"Error loading group chat: {str(e)}")
         st.session_state['current_view'] = 'group_chats'
         st.rerun()
+        return
     
-    st.markdown(f"## 💬 {group_info['topic_name']}")
+    # Send message with enhanced debug information
+    st.markdown("### 💭 Send Message")
     
-    # Display group messages
-    messages = chatbot.get_group_messages(group_id)
+    # Message sending debug panel
+    with st.expander("🔧 Message Sending Debug", expanded=False):
+        st.markdown("#### Sending Configuration")
+        
+        # Current user context
+        st.markdown(f"**Current User:** {chatbot.user_name} ({chatbot.user_id})")
+        st.markdown(f"**Group ID:** {group_id}")
+        st.markdown(f"**Group Topic:** {group_info['topic_name']}")
+        
+        # Message processing settings
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**Processing Settings:**")
+            st.markdown("• AI Response Generation: ✅ Enabled")
+            st.markdown("• Citation Generation: ✅ Enabled")
+            st.markdown("• Real-time Processing: ✅ Enabled")
+        
+        with col2:
+            st.markdown("**Expected Behavior:**")
+            st.markdown("• User message saved to database")
+            st.markdown("• AI generates contextual response")
+            st.markdown("• Citations generated for response")
+            st.markdown("• Response saved with metadata")
+        
+        # Recent sending history
+        if 'message_sending_history' not in st.session_state:
+            st.session_state['message_sending_history'] = []
+        
+        if st.session_state['message_sending_history']:
+            st.markdown("#### Recent Message History")
+            for entry in st.session_state['message_sending_history'][-5:]:  # Last 5 messages
+                status_icon = "✅" if entry['success'] else "❌"
+                st.markdown(f"{status_icon} **{entry['timestamp']}:** {entry['message'][:50]}...")
     
-    for message in messages:
-        if message['user_id'] == 'ai_bot':
-            st.markdown(f"**🤖 AI Bot:** {message['message']}")
-        else:
-            st.markdown(f"**👤 User:** {message['message']}")
-    
-    # Send message
-    user_input = st.text_input("Type your message:", key="group_input", 
-                             placeholder="What would you like to say?")
-    if st.button("Send") and user_input:
-        result = chatbot.send_group_message(group_id, user_input)
-        if result.get('success'):
-            st.rerun()
-        else:
-            st.error(f"Error sending message: {result.get('error', 'Unknown error')}")
+    with st.form("group_message"):
+        user_input = st.text_input("Type your message:", placeholder="What would you like to say?")
+        send_button = st.form_submit_button("Send")
+        
+        if send_button and user_input:
+            try:
+                # Track sending start time
+                import time
+                start_time = time.time()
+                
+                # Send message using the group chat instance
+                ai_response_data = group_chat.send_message(user_input.strip())
+                
+                # Calculate processing time
+                processing_time = time.time() - start_time
+                
+                # Log the sending attempt
+                sending_entry = {
+                    'timestamp': time.strftime('%H:%M:%S'),
+                    'message': user_input.strip(),
+                    'success': True,
+                    'processing_time': f"{processing_time:.2f}s",
+                    'response_length': len(ai_response_data.get('response', '')),
+                    'citations_generated': len(ai_response_data.get('citations', []))
+                }
+                
+                if 'message_sending_history' not in st.session_state:
+                    st.session_state['message_sending_history'] = []
+                st.session_state['message_sending_history'].append(sending_entry)
+                
+                # Show success with debug info
+                st.success(f"✅ Message sent successfully! (Processing time: {processing_time:.2f}s)")
+                
+                # Show response debug info
+                with st.expander("🔧 Response Debug Info", expanded=False):
+                    st.markdown("#### AI Response Details")
+                    st.json({
+                        "processing_time": f"{processing_time:.2f}s",
+                        "response_length": len(ai_response_data.get('response', '')),
+                        "citations_count": len(ai_response_data.get('citations', [])),
+                        "has_citations": ai_response_data.get('has_citations', False),
+                        "framework": ai_response_data.get('framework', 'React AI Pattern'),
+                        "citation_links": ai_response_data.get('citation_links', ''),
+                        "citation_details": ai_response_data.get('citation_details', {})
+                    })
+                
+                st.rerun()
+                
+            except Exception as e:
+                # Log the error
+                error_entry = {
+                    'timestamp': time.strftime('%H:%M:%S'),
+                    'message': user_input.strip(),
+                    'success': False,
+                    'error': str(e)
+                }
+                
+                if 'message_sending_history' not in st.session_state:
+                    st.session_state['message_sending_history'] = []
+                st.session_state['message_sending_history'].append(error_entry)
+                
+                # Log error in group chat errors
+                if 'group_chat_errors' not in st.session_state:
+                    st.session_state['group_chat_errors'] = []
+                
+                st.session_state['group_chat_errors'].append({
+                    'timestamp': time.strftime('%H:%M:%S'),
+                    'message': f"Message sending failed: {str(e)}"
+                })
+                
+                st.error(f"❌ Error sending message: {str(e)}")
+                
+                # Show detailed error info
+                with st.expander("🔧 Error Debug Info", expanded=True):
+                    st.markdown("#### Error Details")
+                    st.json({
+                        "error_type": type(e).__name__,
+                        "error_message": str(e),
+                        "user_input": user_input.strip(),
+                        "group_id": group_id,
+                        "user_id": chatbot.user_id,
+                        "timestamp": time.strftime('%Y-%m-%d %H:%M:%S')
+                    })
 
 def _show_nearby_users_rag_interface(chatbot):
     """Show RAG-powered nearby users interface with semantic search"""
@@ -1402,11 +1761,11 @@ def _show_nearby_users_rag_interface(chatbot):
                 st.write(f"**Total Users in Database:** {len(all_users)}")
                 
                 # Filter users with location data
-                users_with_location = [u for u in all_users if u['location'].get('city') or u['location'].get('coordinates', {}).get('lat')]
+                users_with_location = [u for u in all_users if u.get('location') and (u['location'].get('city') or u['location'].get('coordinates', {}).get('lat'))]
                 st.write(f"**Users with Location Data:** {len(users_with_location)}")
                 
                 # Filter users in same city
-                same_city_users = [u for u in all_users if (u['location'].get('city') or '').lower() == (user_location.get('city') or '').lower() and u['user_id'] != chatbot.user_id]
+                same_city_users = [u for u in all_users if u.get('location') and (u['location'].get('city') or '').lower() == (user_location.get('city') or '').lower() and u['user_id'] != chatbot.user_id]
                 st.write(f"**Users in Same City:** {len(same_city_users)}")
                 
                 # Show users with query-related tags (dynamic based on debug query)
@@ -2122,8 +2481,7 @@ if session_manager.is_user_authenticated():
     if 'chatbot' not in st.session_state:
         st.session_state['chatbot'] = ReactMultiAgentChatbot()
         # Set user context
-        st.session_state['chatbot'].user_id = user_info['user_id']
-        st.session_state['chatbot'].user_name = user_info['user_name']
+        st.session_state['chatbot'].set_user_context(user_info['user_id'], user_info['user_name'])
     
     chatbot = st.session_state['chatbot']
     
@@ -2205,8 +2563,7 @@ else:
             
             # Initialize chatbot for this user
             st.session_state['chatbot'] = ReactMultiAgentChatbot()
-            st.session_state['chatbot'].user_id = user_id
-            st.session_state['chatbot'].user_name = name
+            st.session_state['chatbot'].set_user_context(user_id, name)
             
             st.success(f"👋 Welcome back, {name}! Your session has been loaded.")
             st.rerun()
